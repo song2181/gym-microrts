@@ -337,10 +337,10 @@ if __name__ == "__main__":
     # print(envs.action_plane_space.nvec)
     for update in range(starting_update, args.num_updates + 1):
         # Annealing the rate if instructed to do so.
-        # if args.anneal_lr:
-        #     frac = 1.0 - (update - 1.0) / args.num_updates
-        #     lrnow = lr(frac)
-        #     optimizer.param_groups[0]["lr"] = lrnow
+        if args.anneal_lr:
+            frac = 1.0 - (update - 1.0) / args.num_updates
+            lrnow = lr(frac)
+            optimizer.param_groups[0]["lr"] = lrnow
 
         # TRY NOT TO MODIFY: prepare the execution of the game.
         for step in range(0, args.num_steps):

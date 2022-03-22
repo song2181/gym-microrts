@@ -56,5 +56,17 @@ for i in range(10000):
         sample(action_mask[:,29:sum(envs.action_space.nvec[1:])]), # attack_target parameter
     ), axis=1)
     action = np.array([envs.action_space.sample()])
+
+
+    # act_type = [0,1,0,0,0,0]  ## move
+    # move_dir = [0,0,0,0]      ## move parameter
+    # action = np.zeros(shape=(1,256,78),dtype=np.int64)
+    # move_dir[1] = 1
+    # action[0][17] = act_type + move_dir + [0]*68
+
+
+    # print(action[0][17*7:18*7])  ## worker
+    action[0][17*7:18*7] = [1,1,0,0,0,0,0]
+    print(action[0][34*7:35*7])  ## base
     next_obs, reward, done, info = envs.step(action)
 envs.close()
