@@ -17,6 +17,7 @@ from smdp_qlearning_algo import SmdpAgent_Q
 import tensorboard
 from torch.utils.tensorboard import SummaryWriter
 import copy
+from enums import ActionType,UnitType
 
 terminal = [7,7]
 def parse_args():
@@ -68,7 +69,7 @@ def sample(logits):
 #     ).reshape(-1, 1)
 
 def obs_wrapper(rts_obs): ## position rts_obs 1*16*16*27
-    obs = np.array([],dtype=int)
+    obs = []
     # rts_obs_space = rts_obs.shape(-1)
     rts_obs = rts_obs.squeeze()  ## 16*16*27
     for i in range(0,rts_obs.shape[0]):   ## x坐标
@@ -79,21 +80,25 @@ def obs_wrapper(rts_obs): ## position rts_obs 1*16*16*27
             unit_type = rts_obs[i][j][13:21]
             current_action = rts_obs[i][j][21:27]
             if unit_type[4] == 1 and owner[1]:  ## worker of player1
-                obs = np.append(obs,[i,j], axis = 0)
+                obs.append(np.array([i,j]))
     return obs
 
 
-def action_wrapper(pos, action):
+def action_wrapper(pos, act_type, dir = 0, produce_type = 0, attack_pos = [0,0]):
     # act_type = [0,1,0,0,0,0]  ## move
     # move_dir = [0,0,0,0]      ## move parameter
     # act = np.zeros(shape=(1,256,78),dtype=np.int64)
     # move_dir[action] = 1
     # act[0][pos[0]*16+pos[1]] = act_type + move_dir + [0]*68
-    # act = act.reshape(1,-1)
-    act_type = 1  ##move
-    move_dir = action  
+    # act = act.reshape(1,-1) 
     act = np.zeros(shape=(1,256,7),dtype=np.int64)
-    act[0][pos[0]*16+pos[1]]= [act_type , move_dir ,0,0,0,0,0]
+    act[0][pos[0]*16+pos[1]][0] = act_type
+    if act_type != ActionType.Attack:
+        act[0][pos[0]*16+pos[1]][act_type] = dir
+        if act_type == ActionType.Produce:
+            act[0][pos[0]*16+pos[1]][5] = produce_type
+    else:
+        act[0][pos[0]*16+pos[1]][6] = attack_pos[0]*16+attack_pos[1]
     act = act.reshape(1,-1)
     return act
 
@@ -111,7 +116,7 @@ def pos_forward(pos, action):
 
 
 ## new added for option methods
-def step_option(option,cur_state):
+def step_option(option,cur_state): # cur_state is a position
     """Steps through an option until termnation, then returns the final
         observation, reward history, and finishing evaluation.
     """
@@ -131,7 +136,7 @@ def step_option(option,cur_state):
             if step%10 == 0:
 
                 envs.get_action_mask() 
-                act = action_wrapper(obs[-1],action)
+                act = action_wrapper(obs[-1],ActionType.Move,action)
                 pos = pos_forward(pos,action)
                 acts.append(act)
                 # time.sleep(2)
@@ -148,6 +153,21 @@ def step_option(option,cur_state):
                 done = get_done(obs[-1])
         step+=1
     return obs, acts, rew, done, info
+
+
+def step_action(action):
+    step = 0
+    while True:
+        if step == 0:
+            act = action
+        else:
+            act = np.zeros(shape=(1,1792),dtype=np.int64)
+        ob, re, do, info = envs.step(act)
+        envs.render()
+        if step == 49:  ## produce need 50 step
+            break
+        step += 1
+    return ob
 
 
 
@@ -178,28 +198,28 @@ def get_done(obs,opt_terminal = terminal):
     else:
         return False
 
-## init two worker agent
-# def env_init():
-#     action_mask = envs.get_action_mask()
-#     base_position = find_unit()
-#     action = 
-#     envs.step(action)
-#     envs.render()
+# init two worker agent
+def env_init(obs):
+    action_mask = envs.get_action_mask()
+    base_position = find_unit(obs,UnitType.Base)  # find the base: 1
+    action = action_wrapper(base_position,ActionType.Produce,1,produce_type=3)  ## dir = east, type = worker
+    obs_next = step_action(action)
+    return obs_next
 
-# def find_unit(rts_obs,unittype): ## position rts_obs 1*16*16*27
-#     obs = np.array([],dtype=int)
-#     # rts_obs_space = rts_obs.shape(-1)
-#     rts_obs = rts_obs.squeeze()  ## 16*16*27
-#     for i in range(0,rts_obs.shape[0]):   ## x坐标
-#         for j in range(0,rts_obs.shape[1]):   ## y坐标
-#             hit_points = rts_obs[i][j][0:5]
-#             resource =  rts_obs[i][j][5:10]
-#             owner = rts_obs[i][j][10:13]
-#             unit_type = rts_obs[i][j][13:21]
-#             current_action = rts_obs[i][j][21:27]
-#             if unit_type[4] == unittype and owner[1]:  ## worker of player1
-#                 obs = np.append(obs,[i,j], axis = 0)
-#     return obs
+def find_unit(rts_obs,unittype): ## position rts_obs 1*16*16*27
+    obs = np.array([],dtype=int)
+    # rts_obs_space = rts_obs.shape(-1)
+    rts_obs = rts_obs.squeeze()  ## 16*16*27
+    for i in range(0,rts_obs.shape[0]):   ## x坐标
+        for j in range(0,rts_obs.shape[1]):   ## y坐标
+            hit_points = rts_obs[i][j][0:5]
+            resource =  rts_obs[i][j][5:10]
+            owner = rts_obs[i][j][10:13]
+            unit_type = rts_obs[i][j][13:21]
+            current_action = rts_obs[i][j][21:27]
+            if unit_type[unittype] == 1 and owner[1]:  ## unittype of player1
+                obs = np.append(obs,[i,j], axis = 0)
+    return obs
 
 if __name__ == "__main__":
     # env init
@@ -235,13 +255,13 @@ if __name__ == "__main__":
 
     for i in range(args.episode):
         envs.render()
-        cur_state = obs_wrapper(envs.reset())## np.array 1*16*16*27
         print(i)
+        obs = envs.reset()
 
-        # TODO: this numpy's `sample` function is very very slow.
-        # PyTorch's `sample` function is much much faster,
-        # but we want to remove PyTorch as a core dependency...
+        ## init 2 agent
+        obs = env_init(obs)
 
+        cur_state = obs_wrapper(obs)## np.array 1*16*16*27
 
         # action_mask
         action_mask = envs.get_action_mask()  ##1*256*78
