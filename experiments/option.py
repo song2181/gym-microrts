@@ -1,3 +1,4 @@
+from matplotlib.pyplot import flag
 import numpy as np
 
 class Option():
@@ -18,9 +19,11 @@ class Option():
         self.num_actions = num_actions
         self.activation  = np.array(valid_states) # activation conditions (states)
         self.termination = np.reshape(termination_conditions,(-1,2)) # (states)
+        self.exploration = 0.5
+        self.move_number = 4
     
     
-    def act(self,state):
+    def act(self,state,obs):
         """The policy. Takes state (or observation) and returns action.
            This simply reads the necessary action from self.policy
            The action is applied to the agent in the arguments
@@ -28,7 +31,15 @@ class Option():
         if self.check_termination(state):
             return None
         else:
-            return int(self.policy[tuple(state)])
+            roll = np.random.random()
+            if roll <= self.exploration:
+                valid_actions = [i for i in np.arange(self.move_number) if self.check_action_available(state,obs,i)]
+                return int(np.random.choice(valid_actions))
+            else:
+                if int(self.policy[tuple(state)]) not in valid_actions:
+                    return int(np.random.choice(valid_actions))
+                else:
+                    return int(self.policy[tuple(state)])
             
     
     def greedy_action(self,state):
@@ -37,6 +48,19 @@ class Option():
         """
         return self.act(state)
     
+    def check_action_available(self,state,obs,action):
+        if action == 0:
+            res = [state[0]-1,state[1]]
+        elif action == 2:
+            res = [state[0]+1,state[1]]
+        elif action == 1:
+            res = [state[0],state[1]+1]
+        elif action == 3:
+            res = [state[0],state[1]-1]
+        if res in obs:
+            return 0
+        else:
+            return 1
     
     def check_validity(self,state):
         """Returns boolean indicator of whether or not the state is among valid

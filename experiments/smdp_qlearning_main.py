@@ -123,12 +123,14 @@ def step_option(options,cur_state): # cur_state is a position
     obs = [cur_state]
     acts = []
     rew  = []
+    global_obs=[]
     done = False
     # pos = copy.deepcopy(cur_state)
     step = 0
     while not done: # and not option.check_termination(obs[-1]):
-        for agent,option in zip(obs[-1],options):
-            action = option.act(agent)
+        now_act=np.zeros(shape=(1,1792),dtype=np.int64)
+        for  agent,option in zip(obs[-1],options):
+            action = option.act(agent,obs[-1])
             # action = 1
             if action is None or action == -1: # option was invalid
                 continue
@@ -136,15 +138,18 @@ def step_option(options,cur_state): # cur_state is a position
                 if step%10 == 0:
                     envs.get_action_mask() 
                     act = action_wrapper(agent,ActionType.Move,action)
+                    now_act+=act
+                    # now_act=act
                     # pos = pos_forward(pos,action)
                     acts.append(act)
                     # time.sleep(2)
-                else:
-                    act = np.zeros(shape=(1,1792),dtype=np.int64)
+                # else:
+                #     act = np.zeros(shape=(1,1792),dtype=np.int64)
 
-                ob, re, do, info = envs.step(act)
-                envs.render()
+        ob, re, do, info = envs.step(now_act)
+        envs.render()
         if step%10 == 9:
+            # global_obs.append(ob)
             obs.append(obs_wrapper(ob))
             reward = sum([get_reward(i) for i in obs[-1]])
             rew.append(reward)
