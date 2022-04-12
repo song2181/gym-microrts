@@ -116,7 +116,7 @@ def pos_forward(pos, action):
 
 
 ## new added for option methods
-def step_option(option,cur_state): # cur_state is a position
+def step_option(options,cur_state): # cur_state is a position
     """Steps through an option until termnation, then returns the final
         observation, reward history, and finishing evaluation.
     """
@@ -124,36 +124,47 @@ def step_option(option,cur_state): # cur_state is a position
     acts = []
     rew  = []
     done = False
-    pos = copy.deepcopy(cur_state)
+    # pos = copy.deepcopy(cur_state)
     step = 0
     while not done: # and not option.check_termination(obs[-1]):
-        action = option.act(obs[-1])
-        # action = 1
-        if action is None or action == -1: # option was invalid
-            break
-        else:
-            # if (obs[-1] == pos).all():
-            if step%10 == 0:
-
-                envs.get_action_mask() 
-                act = action_wrapper(obs[-1],ActionType.Move,action)
-                pos = pos_forward(pos,action)
-                acts.append(act)
-                # time.sleep(2)
+        for agent,option in zip(obs[-1],options):
+            action = option.act(agent)
+            # action = 1
+            if action is None or action == -1: # option was invalid
+                continue
             else:
-                act = np.zeros(shape=(1,1792),dtype=np.int64)
-                # act = action_wrapper(pos,action)
+                if step%10 == 0:
+                    envs.get_action_mask() 
+                    act = action_wrapper(agent,ActionType.Move,action)
+                    # pos = pos_forward(pos,action)
+                    acts.append(act)
+                    # time.sleep(2)
+                else:
+                    act = np.zeros(shape=(1,1792),dtype=np.int64)
 
-            ob, re, do, info = envs.step(act)
-            envs.render()
-            if step%10 == 9:
-                obs.append(obs_wrapper(ob))
-                reward = get_reward(obs[-1])
-                rew.append(reward)
-                done = get_done(obs[-1])
+                ob, re, do, info = envs.step(act)
+                envs.render()
+        if step%10 == 9:
+            obs.append(obs_wrapper(ob))
+            reward = sum([get_reward(i) for i in obs[-1]])
+            rew.append(reward)
+            done = sum([get_option_done(i,j.termination) for i,j in zip(obs[-1],options)])
         step+=1
     return obs, acts, rew, done, info
 
+
+def get_option_done(obs,opt_terminal = terminal):
+    '''
+    if the pos is termination
+    '''
+    if type(obs)==np.ndarray:
+        obs = obs.tolist()
+    if type(opt_terminal) == np.ndarray:
+        opt_terminal = opt_terminal.tolist()
+    if obs == opt_terminal or obs in opt_terminal:
+        return True
+    else:
+        return False
 
 def step_action(action):
     step = 0
@@ -278,19 +289,19 @@ if __name__ == "__main__":
         for _ in range(max_options):
 
             #epsilon = np.max([0.1,1.-itr/(iterations/2.)]) # linear epsilon-decay
-            opt  = agent_smdp.pick_option_greedy_epsilon(cur_state, eps=args.epsilon)
+            opt  = [agent_smdp.pick_option_greedy_epsilon(i, eps=args.epsilon) for i in cur_state]
             states,actions,rewards,done,infos = step_option(opt,cur_state)
-            next_state = states[-1]
-            tdes = util.q_learning_update_option_sequence(args.gamma, args.lr, \
-                                        agent_smdp.q_func, states, \
-                                        rewards, opt.identifier)
-            tot_td   += np.sum(tdes)
-            reward_record.append(rewards)
-            cur_state = next_state
-            steps += len(states)
-            options += 1
+            for i in range(len(states[0])):
+                tdes = util.q_learning_update_option_sequence(args.gamma, args.lr, \
+                                            agent_smdp.q_func, [state[i] for state in states], \
+                                            rewards, opt[i].identifier)
+                tot_td   += np.sum(tdes)
+                reward_record.append(rewards)
+                cur_state = states[-1]
+                steps += len(states)
+                options += 1
             
-            if done:
+            if get_done(cur_state[0]) or get_done(cur_state[1]):
                 break
         total_step += steps
         total_option += options
