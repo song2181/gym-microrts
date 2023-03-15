@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from gym.spaces import MultiDiscrete
-from gym_microrts import microrts_ai
+from gym_microrts_old import microrts_ai
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv, MicroRTSVecEnv
 from stable_baselines3.common.vec_env import VecEnvWrapper, VecVideoRecorder
 from torch.distributions.categorical import Categorical

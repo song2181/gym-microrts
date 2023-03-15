@@ -92,9 +92,10 @@ def action_wrapper(pos, action):
     # act = act.reshape(1,-1)
     act_type = 1  ##move
     move_dir = action  
-    act = np.zeros(shape=(1,256,7),dtype=np.int64)
-    act[0][pos[0]*16+pos[1]]= [act_type , move_dir ,0,0,0,0,0]
-    act = act.reshape(1,-1)
+    # act = np.zeros(shape=(1,256,7),dtype=np.int64)
+    # act[0][pos[0]*16+pos[1]]= [act_type , move_dir ,0,0,0,0,0]
+    # act = act.reshape(1,-1)
+    act = np.array([[pos[0]*16+pos[1],act_type , move_dir ,0,0,0,0,0]])
     return act
 
 
@@ -131,7 +132,7 @@ def step_option(option,cur_state,step_count):
                 acts.append(act)
             
             
-            ob, re, do, info = envs.step(acts[-1])
+            ob, re, do, info = envs.step([acts[-1]])
             step_count+=1
             
             
@@ -174,8 +175,9 @@ if __name__ == "__main__":
         num_bot_envs=1,
         max_steps=2000,
         render_theme=1,
-        ai2s=[microrts_ai.passiveAI for _ in range(1)],
-        map_paths=["maps/16x16/basesWorkers16x16.xml"],
+        # ai2s=[microrts_ai.passiveAI for _ in range(1)],
+        ai2s=[microrts_ai.coacAI for _ in range(1)],
+        map_path="maps/16x16/basesWorkers16x16.xml",
         reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0])
     )
     envs.action_space.seed(0)

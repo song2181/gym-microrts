@@ -5,6 +5,58 @@ import os.path
 import numpy as np
 import matplotlib.pyplot as plt
 from smdp_qlearning_algo import *
+import copy
+
+
+ACTION_TYPE = {
+    "NOOP":0,
+    "move":1,
+    "harvest":2,
+    "return":3,
+    "produce":4,
+    "attack":5
+}
+
+DIR_TO_IDX = {
+    "north":0,
+    "east":1,
+    "south":2,
+    "west":3
+}
+
+PRODUCE_TYPE = {
+    "resource":0,
+    "base":1,
+    "barrack":2,
+    "worker":3,
+    "light":4,
+    "heavy":5,
+    "ranged":6
+}
+
+UNIT_TYPE = {
+    "none":0,
+    "resource":1,
+    "base":2,
+    "barrack":3,
+    "worker":4,
+    "light":5,
+    "heavy":6,
+    "ranged":7
+}
+
+render_frame ={
+    "move":10,
+    "harvest":20,
+    "return":10,
+    "produce":50,
+    "attack":5
+}
+
+IDX_TO_PRODUCE = dict(zip(PRODUCE_TYPE.values(), PRODUCE_TYPE.keys()))
+IDX_TO_DIR = dict(zip(DIR_TO_IDX.values(), DIR_TO_IDX.keys()))
+IDX_TO_ACTION = dict(zip(ACTION_TYPE.values(), ACTION_TYPE.keys()))
+IDX_TO_UNIT = dict(zip(UNIT_TYPE.values(), UNIT_TYPE.keys()))
 
 class QTable():
     """Class for storing q-values in a table.
@@ -62,35 +114,226 @@ class QTable_Numpy():
         else:
             self.table[tuple(state)][action] = q
 
-def create_options(landmarks):
-    ## No action:-1
-    # north:0
-    # east:1
-    # south:2
-    # west:3 ##
+def create_options(agent_pos,unit_type, mine_pos,base_pos):
     options = []
-    ## landmarks [1,4],[4,4],[4,7]
-    for lm in landmarks:
-        valid_state = []
-        policy = np.zeros((16,16),dtype=np.int64) ##16*16
-        for i in range(0,16):
-            for j in range(0,16):
-                if 0 < abs(i-lm[0]) + abs(j-lm[1]) <= 3 :
-                    valid_state.append([i,j])
-                    if j - lm[1] < 0:
-                        policy[i,j] = 1 ## move east
-                    elif j - lm[1] > 0:
-                        policy[i,j] = 3  ## move west
-                    else:
-                        if i-lm[0] < 0:
-                            policy[i,j] = 2  ## move south
-                        else:
-                            policy[i,j] = 0  ## move north
-                else:
-                    policy[i,j] = -1
-        options.append(Option(policy,valid_state,lm))
+    options.extend(create_transport_option(agent_pos,unit_type,base_pos,mine_pos))
+    options.extend(create_produce_worker_option(agent_pos))
     return options
 
+def create_move_option(range_idx=None, dest=None, op_pos=None):
+    """
+    No action:-1
+    north:0
+    east:1
+    south:2
+    west:3 
+    """
+    options = []
+    valid_state = []
+    policy = np.zeros((16,16),dtype=np.int64) ##16*16
+    range_list = [[3,3],[3,8],[3,14],
+                  [8,3],[8,8],[8,14],
+                  [14,3],[14,14],[14,14]]
+    if range_idx is not None:
+        for lm in range_list:
+            valid_state = []
+            policy = np.zeros((16,16),dtype=np.int64) ##16*16
+            for i in range(0,16):
+                for j in range(0,16):
+                    if 0 < abs(i-lm[0]) + abs(j-lm[1]) <= 3 :
+                        valid_state.append([i,j])
+                        if j - lm[1] < 0:
+                            policy[i,j] = 1 ## move east
+                        elif j - lm[1] > 0:
+                            policy[i,j] = 3  ## move west
+                        else:
+                            if i-lm[0] < 0:
+                                policy[i,j] = 2  ## move south
+                            else:
+                                policy[i,j] = 0  ## move north
+                    else:
+                        policy[i,j] = -1
+            options.append(Option(policy,valid_state,lm))
+    return options
+
+def create_attack_option():
+    return 0
+
+
+def create_produce_worker_option(pos):
+    valid_state = []
+    terminate = []
+    policy = [np.array([pos_to_idx(pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['worker'],0])]
+    option = Option(policy,valid_state,terminate,len(policy),identifier=2)
+    return [option]
+
+def create_transport_option(pos, unit_type,base_pos_list, mine_pos_list):
+    """
+    move to mine position, harvest, move to base position , return resource.
+    """
+    valid_state = []
+    terminate = []
+    # policy = np.zeros((16,16),dtype=np.array) ##16*16
+    policy = [] # list of array
+    if unit_type == UNIT_TYPE["worker"]:
+        base_pos,dis1 = find_closest(pos,base_pos_list)
+        mine_pos,dis2 = find_closest(pos,mine_pos_list)
+        if not isNext(pos,mine_pos):
+            action, pos1= move_to_pos_around(pos,mine_pos)
+            policy.extend(action)
+        else:
+            pos1 = pos
+        policy.append(get_harvest_return_policy(pos1,mine_pos,action_type=ACTION_TYPE["harvest"]))
+        if not isNext(pos1,base_pos):
+            action, pos2= move_to_pos_around(pos1,base_pos)
+            policy.extend(action)
+        else:
+            pos2 = pos
+        policy.append(get_harvest_return_policy(pos2,base_pos,action_type=ACTION_TYPE["return"]))
+    option = Option(policy,valid_state,terminate,len(policy),identifier=1)
+    return [option]
+
+def find_closest(pos,pos_list):
+    assert len(pos_list) > 0
+    min_dis = 999
+    closest_pos = pos_list[0]
+    for i in pos_list:
+        if distance(pos,i) < min_dis:
+            closest_pos = i
+            min_dis = distance(pos,i)
+    return closest_pos, min_dis
+
+def distance(pos1,pos2):
+    return abs(pos1[0]-pos2[0])+abs(pos1[1]-pos2[1])
+# policy
+def get_harvest_return_policy(pos,mine_pos,action_type=None):
+    """
+        get harvest/return policy, make sure your pos is next to the mine/base pos.
+    """
+    if action_type == ACTION_TYPE['harvest']:
+        if mine_pos[0] == pos[0]:
+            if mine_pos[1]-pos[1] == 1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['harvest'],0,DIR_TO_IDX['east'],0,0,0,0])
+            elif mine_pos[1]-pos[1] == -1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['harvest'],0,DIR_TO_IDX['west'],0,0,0,0])
+
+        elif mine_pos[1] == pos[1]:
+            if mine_pos[0]-pos[0] == 1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['harvest'],0,DIR_TO_IDX['south'],0,0,0,0])
+            elif mine_pos[0]-pos[0] == -1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['harvest'],0,DIR_TO_IDX['north'],0,0,0,0])
+        else:
+            raise("your agent is too far from mine!")
+    elif action_type == ACTION_TYPE['return']:
+        if mine_pos[0] == pos[0]:
+            if mine_pos[1]-pos[1] == 1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['return'],0,0,DIR_TO_IDX['east'],0,0,0])
+            elif mine_pos[1]-pos[1] == -1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['return'],0,0,DIR_TO_IDX['west'],0,0,0])
+
+        elif mine_pos[1] == pos[1]:
+            if mine_pos[0]-pos[0] == 1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['return'],0,0,DIR_TO_IDX['south'],0,0,0])
+            elif mine_pos[0]-pos[0] == -1:
+                policy = np.array([pos_to_idx(pos),ACTION_TYPE['return'],0,0,DIR_TO_IDX['north'],0,0,0])
+        else:
+            raise("your agent is too far from base!")
+    else:
+        raise("action type wrong")
+    return policy
+
+
+def move_to_pos_around(pos1,pos2):
+    """
+    from pos1 move to pos2 around
+    """
+    new_pos = copy.deepcopy(pos1)
+    policy = []
+    while not isNext(new_pos,pos2):
+        if pos2[0]>new_pos[0]:
+            policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['south'],0,0,0,0,0]))
+            new_pos = move(new_pos,dir=DIR_TO_IDX['south'])
+        elif pos2[0]<new_pos[0]:
+            policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['north'],0,0,0,0,0]))
+            new_pos = move(new_pos,dir=DIR_TO_IDX['north'])
+        else:
+            if pos2[1]<new_pos[1]-1:
+                policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['west'],0,0,0,0,0]))
+                new_pos = move(new_pos,dir=DIR_TO_IDX['west'])
+            elif pos2[1]>new_pos[1]+1:
+                policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['east'],0,0,0,0,0]))
+                new_pos = move(new_pos,dir=DIR_TO_IDX['east'])
+    
+    return policy,new_pos
+
+def move_to_pos(pos1,pos2):
+    """
+    from pos1 move to pos2
+    """
+    new_pos = copy.deepcopy(pos1)
+    policy = []
+    while not equal(new_pos,pos2):
+        if pos2[0]>new_pos[0]:
+            policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['south'],0,0,0,0,0]))
+            new_pos = move(new_pos,dir=DIR_TO_IDX['south'])
+        elif pos2[0]<new_pos[0]:
+            policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['north'],0,0,0,0,0]))
+            new_pos = move(new_pos,dir=DIR_TO_IDX['north'])
+        else:
+            if pos2[1]<new_pos[1]:
+                policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['west'],0,0,0,0,0]))
+                new_pos = move(new_pos,dir=DIR_TO_IDX['west'])
+            elif pos2[1]>new_pos[1]:
+                policy.append(np.array([pos_to_idx(new_pos),ACTION_TYPE['move'],DIR_TO_IDX['east'],0,0,0,0,0]))
+                new_pos = move(new_pos,dir=DIR_TO_IDX['east'])
+    
+    return policy,new_pos
+
+def isNext(pos1, pos2):
+    """
+    if pos1 is next to pos2
+    """
+    if distance(pos1,pos2)< 2 and distance(pos1,pos2)>0:
+        return True
+    else:
+        return False
+
+def equal(pos1, pos2):
+    if abs(pos1[0] - pos2[0]) + abs(pos1[1]-pos2[1]) < 2:
+        return True
+    else:
+        return False
+    
+def pos_to_idx(pos):
+    idx = 16*pos[0]+pos[1]
+    return idx
+
+def idx_to_pos(idx):
+    pos = [idx//16, idx%16]
+    return pos
+
+def move(pos, dir=None) -> list:
+    assert dir in list(DIR_TO_IDX.values())
+    new_pos = copy.deepcopy(pos)
+    if dir == DIR_TO_IDX['north']:
+        new_pos[0] -= 1
+    elif dir == DIR_TO_IDX['south']:
+        new_pos[0] += 1
+    elif dir == DIR_TO_IDX['west']:
+        new_pos[1] -= 1
+    elif dir == DIR_TO_IDX['east']:
+        new_pos[1] += 1
+    if inboard(new_pos):
+        return new_pos
+    else:
+        return pos
+
+def inboard(pos):
+    if pos[0] < 16 and pos[0]>=0 and pos[1] <16 and pos[0] >=0:
+        return True
+    else:
+        return False
+    
 def discounted_return(rewards,gamma):
     try:
         discounted = 0.0

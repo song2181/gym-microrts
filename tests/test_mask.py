@@ -1,6 +1,6 @@
 import numpy as np
 
-from gym_microrts import microrts_ai
+from gym_microrts_old import microrts_ai
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv
 
 render = False

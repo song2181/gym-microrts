@@ -10,7 +10,7 @@ from jpype.imports import registerDomain
 from jpype.types import JArray, JInt
 from PIL import Image
 
-import gym_microrts
+import gym_microrts_old
 
 
 class MicroRTSGridModeVecEnv:
@@ -55,7 +55,7 @@ class MicroRTSGridModeVecEnv:
         self.reward_weight = reward_weight
 
         # read map
-        self.microrts_path = os.path.join(gym_microrts.__path__[0], "microrts")
+        self.microrts_path = os.path.join(gym_microrts_old.__path__[0], "microrts")
         root = ET.parse(os.path.join(self.microrts_path, self.map_paths[0])).getroot()
         self.height, self.width = int(root.get("height")), int(root.get("width"))
 
@@ -246,7 +246,7 @@ class MicroRTSBotVecEnv(MicroRTSGridModeVecEnv):
         self.reward_weight = reward_weight
 
         # read map
-        self.microrts_path = os.path.join(gym_microrts.__path__[0], "microrts")
+        self.microrts_path = os.path.join(gym_microrts_old.__path__[0], "microrts")
         root = ET.parse(os.path.join(self.microrts_path, self.map_paths[0])).getroot()
         self.height, self.width = int(root.get("height")), int(root.get("width"))
 

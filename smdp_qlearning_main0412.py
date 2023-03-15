@@ -4,7 +4,7 @@ from numpy.random import choice
 # if you want to record videos, install stable-baselines3 and use its `VecVideoRecorder`
 # from stable_baselines3.common.vec_env import VecVideoRecorder
 
-from gym_microrts import microrts_ai
+from gym_microrts_old import microrts_ai
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv
 import argparse
 import wandb
@@ -112,8 +112,9 @@ def pos_forward(pos, action):
 
 ## new added for option methods
 def step_option(option,cur_state):
-    """Steps through an option until termnation, then returns the final
-        observation, reward history, and finishing evaluation.
+    """
+    Steps through an option until termnation, then returns the final
+    observation, reward history, and finishing evaluation.
     """
     obs = [cur_state]
     acts = []
@@ -127,7 +128,7 @@ def step_option(option,cur_state):
             break
         else:
             if (obs[-1] == pos).all():
-                envs.get_action_mask() 
+                # envs.get_action_mask() 
                 act = action_wrapper(pos,action)
                 pos = pos_forward(pos,action)
                 # time.sleep(2)
@@ -136,7 +137,7 @@ def step_option(option,cur_state):
                 # act = action_wrapper(pos,action)
 
             acts.append(act)
-            ob, re, do, info = envs.step(acts[-1])
+            ob, re, do, info = envs.step([acts[-1]])
             envs.render()
             
             obs.append(obs_wrapper(ob))
@@ -178,11 +179,12 @@ if __name__ == "__main__":
     max_steps=2000,
     render_theme=2,
     ai2s=[microrts_ai.passiveAI for _ in range(1)],
-    map_paths=["maps/16x16/basesWorkers16x16.xml"],
+    # map_paths=["maps/16x16/basesWorkers16x16.xml"],
+    map_path="maps/16x16/basesWorkers16x16.xml",
     reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0])
     )
     envs.action_space.seed(0)
-    print(envs.action_plane_space.nvec)
+    # print(envs.action_plane_space.nvec)
     nvec = envs.action_space.nvec
     envs.reset() ## np.array 1*16*16*27
 
@@ -210,10 +212,10 @@ if __name__ == "__main__":
         # but we want to remove PyTorch as a core dependency...
 
 
-        # action_mask
-        action_mask = envs.get_action_mask()  ##1*256*78
-        action_mask = action_mask.reshape(-1, action_mask.shape[-1])## 256*78
-        action_type_mask = action_mask[:,0:6]
+        # # action_mask
+        # action_mask = envs.get_action_mask()  ##1*256*78
+        # action_mask = action_mask.reshape(-1, action_mask.shape[-1])## 256*78
+        # action_type_mask = action_mask[:,0:6]
 
         tot_td = 0
         done = False

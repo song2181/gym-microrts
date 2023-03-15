@@ -12,7 +12,7 @@ import pandas as pd
 import torch
 from gym.spaces import MultiDiscrete
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv, MicroRTSBotVecEnv
-from gym_microrts import microrts_ai
+from gym_microrts_old import microrts_ai
 from stable_baselines3.common.vec_env import VecMonitor, VecVideoRecorder
 from torch.utils.tensorboard import SummaryWriter
 from trueskill import TrueSkill, Rating, rate_1vs1, quality_1vs1

@@ -47,3 +47,7 @@ NUM_CORES=5
 export MKL_NUM_THREADS=$NUM_CORES OMP_NUM_THREADS=$NUM_CORES
 nohup python stable_A2C.py >/dev/null 2>&1 &
 ```
+
+Q&A:
+1. 怎么修改初始化的环境：
+   使用conda环境安装相应的gym-microrts 的env路径下，Anaconda3\envs\u-rts\Lib\site-packages\gym_microrts\microrts\maps\，修改对应的xml文件即可。

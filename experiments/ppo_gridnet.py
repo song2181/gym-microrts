@@ -260,14 +260,14 @@ if __name__ == "__main__":
     envs = MicroRTSGridModeVecEnv(
         num_selfplay_envs=args.num_selfplay_envs,
         num_bot_envs=args.num_bot_envs,
-        partial_obs=args.partial_obs,
+        # partial_obs=args.partial_obs,
         max_steps=2000,
         render_theme=2,
         ai2s=[microrts_ai.coacAI for _ in range(args.num_bot_envs - 6)]
         + [microrts_ai.randomBiasedAI for _ in range(min(args.num_bot_envs, 2))]
         + [microrts_ai.lightRushAI for _ in range(min(args.num_bot_envs, 2))]
         + [microrts_ai.workerRushAI for _ in range(min(args.num_bot_envs, 2))],
-        map_paths=["maps/16x16/basesWorkers16x16.xml"],
+        map_path="maps/16x16/basesWorkers16x16.xml",
         reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
     )
     envs = MicroRTSStatsRecorder(envs)

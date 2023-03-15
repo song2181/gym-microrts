@@ -11,7 +11,7 @@ import pickle
 import pandas as pd
 import torch
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv, MicroRTSBotVecEnv
-from gym_microrts import microrts_ai # fmt: off
+from gym_microrts_old import microrts_ai # fmt: off
 from stable_baselines3.common.vec_env import VecMonitor, VecVideoRecorder
 from torch.utils.tensorboard import SummaryWriter
 from trueskill import TrueSkill, Rating, rate_1vs1, quality_1vs1

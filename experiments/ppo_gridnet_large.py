@@ -18,7 +18,7 @@ from stable_baselines3.common.vec_env import VecEnvWrapper, VecMonitor, VecVideo
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 
-from gym_microrts import microrts_ai
+from gym_microrts_old import microrts_ai
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv
 
 

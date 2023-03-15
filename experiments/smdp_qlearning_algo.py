@@ -107,7 +107,7 @@ class Option():
         self.num_actions = num_actions
         self.activation  = np.array(valid_states) # activation conditions (states)
         self.termination = np.reshape(termination_conditions,(-1,2)) # (states)
-        self.exploration = 0.5
+        self.exploration = 0
         self.move_number = 4
     
     

@@ -1,4 +1,5 @@
 import numpy as np
+import rl_utils as util
 
 class Agent():
     """Base agent class for interacting with RoomWorld.
@@ -72,14 +73,14 @@ class SmdpAgent_Q(Agent_Q):
         self.options        = options
         self.num_options    = len(self.options)
         self.current_option = None
-        for i,opt in enumerate(self.options): # label the options for q-learning
-            opt.identifier = i
+        # for i,opt in enumerate(self.options): # label the options for q-learning
+        #     opt.identifier = i
 
 
-    def pick_option_greedy_epsilon(self, state, eps=0.0):
+    def pick_option_greedy_epsilon(self, state, unit_type,eps=0.0):
         """Chooses a new option to apply at state
         """
-        valid_options = [i for i in np.arange(self.num_options) if self.options[i].check_validity(state)]
+        valid_options = [i for i in np.arange(self.num_options) if self.options[i].check_validity(state,unit_type)]
         all_qs        = self.q_func(state)
         valid_qs      = [all_qs[i] for i in valid_options]
         roll = np.random.random()
@@ -102,22 +103,25 @@ class Option():
        OUTPUTS:
            - next action (assumed to be greedy.) #TODO: intra-policy training
     """
-    def __init__(self, policy, valid_states, termination_conditions, num_actions=4):
+    def __init__(self, policy, valid_states, termination_conditions, num_actions=4,identifier=0):
         self.policy      = policy
         self.num_actions = num_actions
         self.activation  = np.array(valid_states) # activation conditions (states)
         self.termination = np.reshape(termination_conditions,(-1,2)) # (states)
+        self.cur_action = 0
+        self.identifier = identifier
     
     
-    def act(self,state):
+    def act(self,state,unit_type,current_step):
         """The policy. Takes state (or observation) and returns action.
            This simply reads the necessary action from self.policy
            The action is applied to the agent in the arguments
         """
-        if self.check_termination(state):
+        if self.check_termination(state,unit_type):
             return None
         else:
-            return int(self.policy[tuple(state)])
+            # return int(self.policy[tuple(state)])
+            return self.policy[current_step]
             
     
     def greedy_action(self,state):
@@ -127,14 +131,28 @@ class Option():
         return self.act(state)
     
     
-    def check_validity(self,state):
+    def check_validity(self,state,unit_type):
         """Returns boolean indicator of whether or not the state is among valid
            starting points for this option.
         """
         if type(state)==np.ndarray:
             state = state.tolist()
-        return state in self.activation.tolist()
-        
+        if self.check_type(unit_type):
+            if self.activation.tolist() == []:
+                return True
+            else:
+                return state in self.activation.tolist()
+        else:
+            return False
+
+
+    def check_type(self, unit_type):
+        if self.identifier == 1:
+            return unit_type == util.UNIT_TYPE["worker"]
+        elif self.identifier == 2:
+            return unit_type == util.UNIT_TYPE["base"]
+        else:
+            return False
         
     def check_termination(self,state):
         """Returns boolean indicator of whether or not the policy is at a 
@@ -142,7 +160,7 @@ class Option():
         """
         if type(state)==np.ndarray:
             state = state.tolist()
-        if state in self.termination.tolist() or not self.check_validity(state):
+        if state in self.termination.tolist() or self.cur_action == self.num_actions:
             return True
         else:
             return False
