@@ -135,13 +135,11 @@ class Option():
         """Returns boolean indicator of whether or not the state is among valid
            starting points for this option.
         """
+        from rl_utils import pos_to_idx
         if type(state)==np.ndarray:
             state = state.tolist()
         if self.check_type(unit_type):
-            if self.activation.tolist() == []:
-                return True
-            else:
-                return state in self.activation.tolist()
+            return pos_to_idx(state) in self.activation.tolist()
         else:
             return False
 
@@ -151,6 +149,12 @@ class Option():
             return unit_type == util.UNIT_TYPE["worker"]
         elif self.identifier == 2:
             return unit_type == util.UNIT_TYPE["base"]
+        elif self.identifier in [3,4,5]: # produce light, heavy or ranged
+            return unit_type == util.UNIT_TYPE["barrack"]
+        elif self.identifier == 6:
+            return unit_type == util.UNIT_TYPE['light'] or unit_type == util.UNIT_TYPE['ranged'] or unit_type == util.UNIT_TYPE['heavy']
+        elif self.identifier == 99:
+            return not unit_type == util.UNIT_TYPE["barrack"] # TODO
         else:
             return False
         
