@@ -312,13 +312,13 @@ class Agent(nn.Module):
         return self.network(x.permute((0, 3, 1, 2)))  # "bhwc" -> "bchw"
 
     def get_action(self, x, action=None, invalid_action_masks=None, envs=None):
-        logits = self.actor(self.forward(x)) #24*19968(256*78)
+        logits = self.actor(self.forward(x)) #24*19968
         grid_logits = logits.view(-1, envs.action_space.nvec[1:].sum())
         split_logits = torch.split(grid_logits, envs.action_space.nvec[1:].tolist(), dim=1)
 
         if action is None:
-            invalid_action_masks = torch.tensor(np.array(envs.vec_client.getMasks(0))).to(device) #[24,16,16,79]
-            invalid_action_masks = invalid_action_masks.view(-1, invalid_action_masks.shape[-1]) #[6144,79]
+            invalid_action_masks = torch.tensor(np.array(envs.vec_client.getMasks(0))).to(device) #24*19968（256*78）
+            invalid_action_masks = invalid_action_masks.view(-1, invalid_action_masks.shape[-1])
             split_invalid_action_masks = torch.split(invalid_action_masks[:, 1:], envs.action_space.nvec[1:].tolist(), dim=1)
             multi_categoricals = [
                 CategoricalMasked(logits=logits, masks=iam) for (logits, iam) in zip(split_logits, split_invalid_action_masks)
@@ -333,7 +333,7 @@ class Agent(nn.Module):
             ]
         logprob = torch.stack([categorical.log_prob(a) for a, categorical in zip(action, multi_categoricals)])
         entropy = torch.stack([categorical.entropy() for categorical in multi_categoricals])
-        num_predicted_parameters = len(envs.action_space.nvec) - 1 #7
+        num_predicted_parameters = len(envs.action_space.nvec) - 1
         logprob = logprob.T.view(-1, 256, num_predicted_parameters)
         entropy = entropy.T.view(-1, 256, num_predicted_parameters)
         action = action.T.view(-1, 256, num_predicted_parameters)

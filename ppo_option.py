@@ -16,8 +16,10 @@ from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv
 from stable_baselines3.common.vec_env import VecEnvWrapper, VecVideoRecorder
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
+from rl_utils import *
 
 if __name__ == "__main__":
+    num_options = 6
     parser = argparse.ArgumentParser(description="PPO agent")
     # Common arguments
     parser.add_argument(
@@ -236,12 +238,12 @@ envs = MicroRTSGridModeVecEnv(
     map_path="maps/16x16/basesWorkers16x16.xml",
     reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
 )
-envs = MicroRTSStatsRecorder(envs, args.gamma)
-envs = VecMonitor(envs)
-if args.capture_video:
-    envs = VecVideoRecorder(
-        envs, f"videos/{experiment_name}", record_video_trigger=lambda x: x % 1000000 == 0, video_length=2000
-    )
+# envs = MicroRTSStatsRecorder(envs, args.gamma)
+# envs = VecMonitor(envs)
+# if args.capture_video:
+#     envs = VecVideoRecorder(
+#         envs, f"videos/{experiment_name}", record_video_trigger=lambda x: x % 1000000 == 0, video_length=2000
+#     )
 # if args.prod_mode:
 #     envs = VecPyTorch(
 #         SubprocVecEnv([make_env(args.gym_id, args.seed+i, i) for i in range(args.num_envs)], "fork"),
@@ -292,6 +294,121 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
     return layer
 
 
+class OptionsPool():
+    def __init__(self, options, map_size=16):
+        self.options        = options
+        # self.num_options    = len(self.options[0])
+        self.current_option = [{} for _ in range(args.num_envs)]
+        self.map_size = map_size
+        self.option_mask = np.zeros((args.num_envs,map_size,map_size,num_options))
+        self.agent_pos = [{} for _ in range(args.num_envs)]
+    
+    def getOptionMask(self,obs):
+    #TODO
+        for i in range(args.num_envs):
+            option_mask = []
+            for j in range(self.map_size*self.map_size):
+                if j in self.options[i].keys():
+                    unit_type = self.agent_pos[i][j]
+                    option_mask.extend([self.options[i][j][k].check_validity(idx_to_pos(j),unit_type) for k in range(num_options)])
+                else:
+                    option_mask.extend([False for _ in range(num_options)])
+                
+            self.option_mask[i] = np.array(option_mask).reshape(self.map_size,self.map_size,num_options)
+        return self.option_mask
+
+    def update_options(self, obs_tensor,action_mask,split_index,options=None):
+        if options is not None:
+            self.options = options
+        else:
+            self.options = [{} for _ in range(args.num_envs)]
+            obs = obs_tensor.cpu().numpy()
+            for i in range(args.num_envs):
+                agent_pos,mine_pos,base_pos,my_state,op_state = obs_wrapper(obs[i])
+                self.agent_pos[i] = agent_pos
+                mapp = np.ones([self.map_size,self.map_size])-obs[i][:,:,13].reshape(self.map_size,self.map_size)
+                for cur_state_idx, unit_type in agent_pos.items():
+                    source_unit_action_mask = action_mask[i][cur_state_idx]
+                    split_suam = np.split(source_unit_action_mask, split_index)
+                    self.options[i][cur_state_idx] = create_options(idx_to_pos(cur_state_idx),unit_type, mine_pos,base_pos,my_state,op_state,split_suam,mapp)
+
+    def get_current_options(self,opt):
+        for i in range(args.num_envs):
+            for idx in self.agent_pos[i].keys():
+                if idx not in self.current_option[i].keys():
+                    self.current_option[i][idx] = self.options[i][idx][opt[i][idx]]
+        return self.current_option
+    
+    def update_current_option(self,option):
+        for i in range(args.num_envs):
+            new_option, finished_option = check_options_termination(option[i])
+            self.current_option[i] = new_option
+    
+def check_options_termination(options):
+    finished_option = {}
+    new_option = copy.deepcopy(options)
+    for idx,opt in options.items():
+        if opt.check_termination(idx_to_pos(idx)):
+            finished_option[idx] = new_option.pop(idx)
+    return new_option,finished_option
+
+def get_action(cur_option, action_mask, split_index):
+    acts = [[] for _ in range(args.num_envs)]
+    new_option = copy.deepcopy(cur_option)
+    for i in range(args.num_envs):
+        for idx, opt in cur_option[i].items():
+            source_unit_action_mask = action_mask[i][idx]
+            split_suam = np.split(source_unit_action_mask, split_index) # len=7, length is [6,4,4,4,4,7,49]
+            if invalid_attack(split_suam):
+                opt_pos = np.argmax(split_suam[6]) # attack position 
+                act = np.array([idx,ACTION_TYPE['attack'],0,0,0,0,0,opt_pos])
+                acts[i].append(act)
+            else:
+                act = opt.policy[opt.cur_action]
+                mask = [split_suam[i-1][act[i]] for i in range(1,8)]
+                # 1. 有动作 2 动作可执行 3 动作方向参数可执行
+                if invalid_action(act, mask):
+                    new_option[i][idx].cur_action += 1
+                    acts[i].append(act)
+                    if act[1] == ACTION_TYPE['move']:
+                        new_pos = move(idx_to_pos(idx),dir=act[2])
+                        new_option[i][pos_to_idx(new_pos)] = new_option[i].pop(idx)
+    
+    return acts,new_option
+
+def obs_wrapper(rts_obs): ## position rts_obs 1*16*16*27
+    agent_pos = {} # agent which can excecute an action now! key:pos,values:unit_type
+    mine_pos = []
+    base_pos = []
+    my_state = {}
+    op_state = {}
+    for unit_type in range(1,8): # unittype: 1-7
+        my_state[unit_type] = []
+        op_state[unit_type] = []
+    # rts_obs_space = rts_obs.shape(-1)
+    rts_obs = rts_obs.squeeze()  ## 16*16*27
+    for i in range(0,rts_obs.shape[0]):   ## x坐标
+        for j in range(0,rts_obs.shape[1]):   ## y坐标
+            hit_points = np.argmax(rts_obs[i][j][0:5])
+            resource =  np.argmax(rts_obs[i][j][5:10])
+            owner = rts_obs[i][j][10:13]
+            unit_type = np.argmax(rts_obs[i][j][13:21])
+            current_action = np.argmax(rts_obs[i][j][21:27])
+            if unit_type == UNIT_TYPE['resource'] and resource>0:
+                mine_pos.append([i,j])
+            if unit_type == UNIT_TYPE['base'] and owner[1]:
+                base_pos.append([i,j])
+            if unit_type >= UNIT_TYPE['base'] and owner[1] and current_action == 0:  ## not base and resource of player1
+                agent_pos[pos_to_idx([i,j])] = unit_type
+            if owner[1] and unit_type>0:
+                my_state[unit_type].append([i,j])
+            elif owner[2] and unit_type>0:
+                op_state[unit_type].append([i,j])
+            elif owner[0] and unit_type>0:
+                op_state[unit_type].append([i,j])
+                my_state[unit_type].append([i,j])
+    return agent_pos,mine_pos,base_pos,my_state,op_state
+
 class Agent(nn.Module):
     def __init__(self, mapsize=16 * 16):
         super(Agent, self).__init__()
@@ -305,40 +422,31 @@ class Agent(nn.Module):
             layer_init(nn.Linear(32 * 6 * 6, 256)),
             nn.ReLU(),
         )
-        self.actor = layer_init(nn.Linear(256, self.mapsize * envs.action_space.nvec[1:].sum()), std=0.01)
+        self.actor = layer_init(nn.Linear(256, self.mapsize * num_options), std=0.01)
         self.critic = layer_init(nn.Linear(256, 1), std=1)
 
     def forward(self, x):
         return self.network(x.permute((0, 3, 1, 2)))  # "bhwc" -> "bchw"
 
-    def get_action(self, x, action=None, invalid_action_masks=None, envs=None):
-        logits = self.actor(self.forward(x)) #24*19968(256*78)
-        grid_logits = logits.view(-1, envs.action_space.nvec[1:].sum())
-        split_logits = torch.split(grid_logits, envs.action_space.nvec[1:].tolist(), dim=1)
-
-        if action is None:
-            invalid_action_masks = torch.tensor(np.array(envs.vec_client.getMasks(0))).to(device) #[24,16,16,79]
-            invalid_action_masks = invalid_action_masks.view(-1, invalid_action_masks.shape[-1]) #[6144,79]
-            split_invalid_action_masks = torch.split(invalid_action_masks[:, 1:], envs.action_space.nvec[1:].tolist(), dim=1)
-            multi_categoricals = [
-                CategoricalMasked(logits=logits, masks=iam) for (logits, iam) in zip(split_logits, split_invalid_action_masks)
-            ]
-            action = torch.stack([categorical.sample() for categorical in multi_categoricals])# [7,6144](24*256)
+    def get_option(self, x, option=None, invalid_option_masks=None, envs=None):
+        logits = self.actor(self.forward(x)) # [24,2560]
+        grid_logits = logits.view(-1,num_options)
+        # invalid_option_masks [24,2560] x[24,16,16,27]
+        if option is None:
+            assert invalid_option_masks is not None, "invalid_option_mask is None."
+            invalid_option_masks = torch.tensor(invalid_option_masks).view(-1, invalid_option_masks.shape[-1]).to(device)
+            categorical = CategoricalMasked(logits=grid_logits, masks=invalid_option_masks)
+            option = categorical.sample()# [6144] (24*256)
         else:
-            invalid_action_masks = invalid_action_masks.view(-1, invalid_action_masks.shape[-1])
-            action = action.view(-1, action.shape[-1]).T
-            split_invalid_action_masks = torch.split(invalid_action_masks[:, 1:], envs.action_space.nvec[1:].tolist(), dim=1)
-            multi_categoricals = [
-                CategoricalMasked(logits=logits, masks=iam) for (logits, iam) in zip(split_logits, split_invalid_action_masks)
-            ]
-        logprob = torch.stack([categorical.log_prob(a) for a, categorical in zip(action, multi_categoricals)])
-        entropy = torch.stack([categorical.entropy() for categorical in multi_categoricals])
-        num_predicted_parameters = len(envs.action_space.nvec) - 1 #7
-        logprob = logprob.T.view(-1, 256, num_predicted_parameters)
-        entropy = entropy.T.view(-1, 256, num_predicted_parameters)
-        action = action.T.view(-1, 256, num_predicted_parameters)
-        invalid_action_masks = invalid_action_masks.view(-1, 256, envs.action_space.nvec[1:].sum() + 1)
-        return action, logprob.sum(1).sum(1), entropy.sum(1).sum(1), invalid_action_masks
+            option = option.view(-1, option.shape[-1]).T
+            categorical = CategoricalMasked(logits=logits, masks=invalid_option_masks)
+        logprob = categorical.log_prob(option)#[6144]
+        entropy = categorical.entropy() #[6144]
+        logprob = logprob.T.view(-1, 256) #[24,256]
+        entropy = entropy.T.view(-1, 256)
+        option = option.T.view(-1, 256) #[24,256]
+        invalid_option_masks = invalid_option_masks.view(-1, self.mapsize,num_options) # 24,256,10
+        return option, logprob.sum(1), entropy.sum(1), invalid_option_masks
 
     def get_value(self, x):
         return self.critic(self.forward(x))
@@ -354,14 +462,19 @@ if args.anneal_lr:
 mapsize = 16 * 16
 action_space_shape = (mapsize, envs.action_space.shape[0] - 1)
 invalid_action_shape = (mapsize, envs.action_space.nvec[1:].sum() + 1)
+# option_space_shape = mapsize
+invalid_option_shape = (mapsize,num_options)
 
 obs = torch.zeros((args.num_steps, args.num_envs) + envs.observation_space.shape).to(device)
 actions = torch.zeros((args.num_steps, args.num_envs) + action_space_shape).to(device)
+options = torch.zeros((args.num_steps, args.num_envs, mapsize)).to(device)
 logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
 rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
 dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
 values = torch.zeros((args.num_steps, args.num_envs)).to(device)
 invalid_action_masks = torch.zeros((args.num_steps, args.num_envs) + invalid_action_shape).to(device)
+invalid_option_masks = torch.zeros((args.num_steps, args.num_envs) + invalid_option_shape).to(device)
+current_option = OptionsPool([{} for _ in range(args.num_envs)])
 # TRY NOT TO MODIFY: start the game
 global_step = 0
 start_time = time.time()
@@ -370,7 +483,7 @@ start_time = time.time()
 next_obs = torch.Tensor(envs.reset()).to(device)
 next_done = torch.zeros(args.num_envs).to(device)
 num_updates = args.total_timesteps // args.batch_size
-
+split_index = [sum(envs.action_space.nvec.tolist()[1:a]) for a in range(2,8)]
 ## CRASH AND RESUME LOGIC:
 starting_update = 1
 from jpype.types import JArray, JInt
@@ -396,42 +509,55 @@ for update in range(starting_update, num_updates + 1):
     # TRY NOT TO MODIFY: prepare the execution of the game.
     for step in range(0, args.num_steps):
         envs.render()
+        
         global_step += 1 * args.num_envs
         obs[step] = next_obs
         dones[step] = next_done
+        action_mask = envs.get_action_mask()  ##24*256*78
+        current_option.update_options(obs[step],action_mask,split_index)
+        # invalid_option_masks = current_option.getOptionMask(obs[step])
         # ALGO LOGIC: put action logic here
+        t_start = time.time()
         with torch.no_grad():
             values[step] = agent.get_value(obs[step]).flatten()
-            action, logproba, _, invalid_action_masks[step] = agent.get_action(obs[step], envs=envs)
-
-        actions[step] = action
+            option, logproba, _, invalid_option_masks[step] = agent.get_option(obs[step],invalid_option_masks = current_option.getOptionMask(obs[step]),envs=envs)
+        t_end = time.time()
+        print("get_option:", t_end-t_start)
+        t_start = time.time()
+        options[step] = option
         logprobs[step] = logproba
-
+        invalid_action_mask = torch.tensor(np.array(envs.vec_client.getMasks(0))).to(device)
+        invalid_action_masks[step] = invalid_action_mask.view(-1, 256, envs.action_space.nvec[1:].sum() + 1)
+        real_option = current_option.get_current_options(option)
+        action, real_option = get_action(real_option,action_mask,split_index) #[24,256,7]
+        current_option.update_current_option(real_option)
+        t_end = time.time()
+        print("get_action:", t_end-t_start)
         # TRY NOT TO MODIFY: execute the game and log data.
         # the real action adds the source units
-        real_action = torch.cat(
-            [torch.stack([torch.arange(0, mapsize, device=device) for i in range(envs.num_envs)]).unsqueeze(2), action], 2
-        )
+        # real_action = torch.cat(
+        #     [torch.stack([torch.arange(0, mapsize, device=device) for i in range(envs.num_envs)]).unsqueeze(2), action], 2
+        # )
 
-        # at this point, the `real_action` has shape (num_envs, map_height*map_width, 8)
-        # so as to predict an action for each cell in the map; this obviously include a
-        # lot of invalid actions at cells for which no source units exist, so the rest of
-        # the code removes these invalid actions to speed things up
-        real_action = real_action.cpu().numpy()
-        valid_actions = real_action[invalid_action_masks[step][:, :, 0].bool().cpu().numpy()]
-        valid_actions_counts = invalid_action_masks[step][:, :, 0].sum(1).long().cpu().numpy()
-        java_valid_actions = []
-        valid_action_idx = 0
-        for env_idx, valid_action_count in enumerate(valid_actions_counts):
-            java_valid_action = []
-            for c in range(valid_action_count):
-                java_valid_action += [JArray(JInt)(valid_actions[valid_action_idx])]
-                valid_action_idx += 1
-            java_valid_actions += [JArray(JArray(JInt))(java_valid_action)]
-        java_valid_actions = JArray(JArray(JArray(JInt)))(java_valid_actions)
-
+        # # at this point, the `real_action` has shape (num_envs, map_height*map_width, 8)
+        # # so as to predict an action for each cell in the map; this obviously include a
+        # # lot of invalid actions at cells for which no source units exist, so the rest of
+        # # the code removes these invalid actions to speed things up
+        # real_action = real_action.cpu().numpy()
+        # valid_actions = real_action[invalid_action_masks[step][:, :, 0].bool().cpu().numpy()]
+        # valid_actions_counts = invalid_action_masks[step][:, :, 0].sum(1).long().cpu().numpy()
+        # java_valid_actions = []
+        # valid_action_idx = 0
+        # for env_idx, valid_action_count in enumerate(valid_actions_counts):
+        #     java_valid_action = []
+        #     for c in range(valid_action_count):
+        #         java_valid_action += [JArray(JInt)(valid_actions[valid_action_idx])]
+        #         valid_action_idx += 1
+        #     java_valid_actions += [JArray(JArray(JInt))(java_valid_action)]
+        # java_valid_actions = JArray(JArray(JArray(JInt)))(java_valid_actions)
+        t_start = time.time()
         try:
-            next_obs, rs, ds, infos = envs.step(java_valid_actions)
+            next_obs, rs, ds, infos = envs.step(action)
             next_obs = torch.Tensor(next_obs).to(device)
         except Exception as e:
             e.printStackTrace()
@@ -445,6 +571,8 @@ for update in range(starting_update, num_updates + 1):
                 for key in info["microrts_stats"]:
                     writer.add_scalar(f"charts/episode_reward/{key}", info["microrts_stats"][key], global_step)
                 break
+        t_end = time.time()
+        print("step:", t_end-t_start)
 
     # bootstrap reward if not done. reached the batch limit
     with torch.no_grad():
@@ -478,10 +606,12 @@ for update in range(starting_update, num_updates + 1):
     b_obs = obs.reshape((-1,) + envs.observation_space.shape)
     b_logprobs = logprobs.reshape(-1)
     b_actions = actions.reshape((-1,) + action_space_shape)
+    b_options = options.reshape((-1,mapsize))
     b_advantages = advantages.reshape(-1)
     b_returns = returns.reshape(-1)
     b_values = values.reshape(-1)
     b_invalid_action_masks = invalid_action_masks.reshape((-1,) + invalid_action_shape)
+    b_invalid_option_masks = invalid_option_masks.reshape((-1,) + invalid_option_shape)
 
     # Optimizaing the policy and value network
     inds = np.arange(
@@ -496,8 +626,8 @@ for update in range(starting_update, num_updates + 1):
             if args.norm_adv:
                 mb_advantages = (mb_advantages - mb_advantages.mean()) / (mb_advantages.std() + 1e-8)
             # raise
-            _, newlogproba, entropy, _ = agent.get_action(
-                b_obs[minibatch_ind], b_actions.long()[minibatch_ind], b_invalid_action_masks[minibatch_ind], envs
+            _, newlogproba, entropy, _ = agent.get_option(
+                b_obs[minibatch_ind], b_options.long()[minibatch_ind], b_invalid_option_masks[minibatch_ind], envs
             )
             ratio = (newlogproba - b_logprobs[minibatch_ind]).exp()
 

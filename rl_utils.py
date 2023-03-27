@@ -54,6 +54,15 @@ render_frame ={
     "attack":5
 }
 
+resource_need = {
+    "base":0,
+    "barrack":5,
+    "worker":1,
+    "light":4,
+    "heavy":4,
+    "ranged":4,
+}
+
 IDX_TO_PRODUCE = dict(zip(PRODUCE_TYPE.values(), PRODUCE_TYPE.keys()))
 IDX_TO_DIR = dict(zip(DIR_TO_IDX.values(), DIR_TO_IDX.keys()))
 IDX_TO_ACTION = dict(zip(ACTION_TYPE.values(), ACTION_TYPE.keys()))
@@ -115,19 +124,33 @@ class QTable_Numpy():
         else:
             self.table[tuple(state)][action] = q
 
-def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,mapp):
+def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,action_mask,mapp):
     options = []
-    options.extend(create_transport_option(agent_pos,unit_type,base_pos,mine_pos,mapp))
-    options.extend(create_produce_worker_option(agent_pos))
-    options.extend(create_heavy_option(agent_pos))
-    options.extend(create_light_option(agent_pos))
-    options.extend(create_ranged_option(agent_pos))
-    options.extend(create_attack_base_option(agent_pos,unit_type,op_state,mapp))
+    options.extend(create_transport_option(agent_pos,unit_type,base_pos,mine_pos,mapp))#1
+    options.extend(create_produce_worker_option(agent_pos,my_state))#2
+    # options.extend(create_heavy_option(agent_pos))#3
+    # options.extend(create_light_option(agent_pos))#4
+    options.extend(create_ranged_option(agent_pos))#5
+    options.extend(create_attack_base_option(agent_pos,unit_type,op_state,mapp))#6
+    options.extend(create_barrack_option(agent_pos,unit_type,mapp))#7
     # options.extend(create_attack_closest_option(agent_pos,unit_type,op_state,mapp))
-    options.extend(create_NOOP_options(agent_pos))
-    # options.extend(create_barrack_option(agent_pos,unit_type,mapp))
+    options.extend(create_NOOP_options(agent_pos))#99
+    # options.extend(create_random_move_options(agent_pos,action_mask))#98
     
     return options
+
+def create_random_move_options(agent_pos,action_mask):
+    valid_state = [i for i in range(0,256)]  # all states
+    terminate = []
+    policy = []
+    valid_dir = [i for i in range(0,4) if action_mask[1][i] == 1]
+    if valid_dir == []:
+        valid_state = []
+    else:
+        dir = np.random.choice(valid_dir)
+        policy.append(np.array([pos_to_idx(agent_pos),ACTION_TYPE['move'],dir,0,0,0,0,0]))
+    option = Option(policy,valid_state,terminate,len(policy),identifier=98)
+    return [option]
 
 def create_NOOP_options(agent_pos):
     valid_state = [i for i in range(0,256)]  # all states
@@ -142,8 +165,8 @@ def create_barrack_option(agent_pos,unit_type,mapp):
     valid_state = [i for i in range(0,256)]  # all states
     terminate = []
     policy = get_move_policy(agent_pos,[2,4],mapp)
-    policy.append([np.array([pos_to_idx(agent_pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['barrack'],0])])
-    option = Option(policy,valid_state,terminate,len(policy),identifier=5)
+    policy.append(np.array([pos_to_idx(agent_pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['barrack'],0]))
+    option = Option(policy,valid_state,terminate,len(policy),identifier=7)
     return [option]
 
 def create_heavy_option(agent_pos):
@@ -201,10 +224,27 @@ def get_relative_pos(pos1,pos2):
     # for attack position parameter
     return (pos2[0]-pos1[0]+3)*7+(pos2[1]-pos1[1]+3)
 
-def create_produce_worker_option(pos):
+def invalid_action(act, mask):
+    if act[1] > 0 and act[1] < ACTION_TYPE['produce']: # move\harvest\return
+        return mask[0] and mask[act[1]] 
+    elif act[1] == ACTION_TYPE['produce']:# produce
+        return mask[0] and mask[4] and mask[5]
+    elif act[1] == ACTION_TYPE['attack']:# attack
+        return mask[0] and mask[6]
+    else:
+        return True # NOOP
+    
+def invalid_attack(split_suam):
+    return split_suam[0][5] == 1 # attack mask
+
+def create_produce_worker_option(pos,my_state):
     valid_state = [i for i in range(0,256)]  # all states
     terminate = []
-    policy = [np.array([pos_to_idx(pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['worker'],0])]
+    policy = []
+    if len(my_state[UNIT_TYPE['worker']]) > 4:
+        valid_state = []
+    else:
+        policy.append(np.array([pos_to_idx(pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['worker'],0]))
     option = Option(policy,valid_state,terminate,len(policy),identifier=2)
 
     return [option]

@@ -67,7 +67,6 @@ def SearchPath(mapp,cp,target_position):
         # close_list.append(current_position)
         #到达
         if(current_position == target_position):
-            print("成功找到解")
             tmp=[]#内存储Position   
             while(current_position != None):
                 tmp.append(current_position)

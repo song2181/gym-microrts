@@ -286,9 +286,10 @@ if __name__ == "__main__":
 
     # ALGO Logic: Storage for epoch data
     mapsize = 16 * 16
-    action_space_shape = (mapsize, len(envs.action_plane_space.nvec))
-    invalid_action_shape = (mapsize, envs.action_plane_space.nvec.sum())
-
+    # action_space_shape = (mapsize, len(envs.action_plane_space.nvec))
+    # invalid_action_shape = (mapsize, envs.action_plane_space.nvec.sum())
+    action_space_shape = (mapsize, len(envs.action_space.nvec)-1)
+    invalid_action_shape = (mapsize, envs.action_space.nvec.sum()-256)
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.observation_space.shape).to(device)
     actions = torch.zeros((args.num_steps, args.num_envs) + action_space_shape).to(device)
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
@@ -327,8 +328,8 @@ if __name__ == "__main__":
 
     ## EVALUATION LOGIC:
     eval_queue = []
-    trueskill_df = pd.read_csv("league.csv")
-    trueskill_step_df = pd.read_csv("league.csv")
+    trueskill_df = pd.read_csv("D:\song\研二资料\论文集\gym-microrts\experiments\league.csv")
+    trueskill_step_df = pd.read_csv("D:\song\研二资料\论文集\gym-microrts\experiments\league.csv")
     trueskill_step_df["type"] = trueskill_step_df["name"]
     trueskill_step_df["step"] = 0
     preset_trueskill_step_df = trueskill_step_df.copy()

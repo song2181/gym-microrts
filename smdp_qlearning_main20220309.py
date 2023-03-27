@@ -150,19 +150,6 @@ def step_option(cur_option, action_mask, split_index):
     
     return ob, acts, re, do, new_option
 
-def invalid_action(act, mask):
-    if act[1] > 0 and act[1] < ACTION_TYPE['produce']: # move\harvest\return
-        return mask[0] and mask[act[1]] 
-    elif act[1] == ACTION_TYPE['produce']:# produce
-        return mask[0] and mask[4] and mask[5]
-    elif act[1] == ACTION_TYPE['attack']:# attack
-        return mask[0] and mask[6]
-    else:
-        return True # NOOP
-    
-def invalid_attack(split_suam):
-    return split_suam[0][5] == 1 # attack mask
-
 
 def check_options_termination(options):
     finished_option = {}
@@ -180,8 +167,8 @@ if __name__ == "__main__":
         max_steps=2000,
         render_theme=1,
         ai2s=[microrts_ai.coacAI for _ in range(1)],
-        map_path="maps/16x16/basesWorkers16x16.xml",
-        # map_path="maps/16x16/TwoBasesBarracks16x16.xml",
+        # map_path="maps/16x16/basesWorkers16x16.xml",
+        map_path="maps/16x16/TwoBasesBarracks16x16.xml",
         reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0])
     )
     
@@ -198,20 +185,21 @@ if __name__ == "__main__":
     # writer.add_text(
     #     "hyperparameters", "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()]))
     # )
-    num_actions = 7   ## up right down left
     state_space = np.array([[i,j] for i in range(0,16) for j in range(0,16)]).astype(int)
 
     new_state = envs.reset()
     action_mask = envs.get_action_mask()  ##1*256*78
     action_mask = action_mask.reshape(-1, action_mask.shape[-1])## 256*78
-    mapp = np.ones([16,16])-new_state[:,:,:,13].reshape(16,16)
-    agent_pos,mine_pos,base_pos,my_state,op_state = obs_wrapper(new_state)## np.array 1*16*16*27
-    options = create_options(idx_to_pos(list(agent_pos.keys())[0]),list(agent_pos.values())[0],mine_pos,base_pos,my_state,op_state,mapp)
-    # produce_woker = Option()
-
-    q_func = QTable(state_space,num_actions)
-    agent_smdp = SmdpAgent_Q(q_func,options)
     split_index = [sum(envs.action_space.nvec.tolist()[1:a]) for a in range(2,8)]
+    mapp = np.ones([16,16])-new_state[:,:,:,13].reshape(16,16)
+    source_unit_action_mask = action_mask[0]
+    split_suam = np.split(source_unit_action_mask, split_index)
+    agent_pos,mine_pos,base_pos,my_state,op_state = obs_wrapper(new_state)## np.array 1*16*16*27
+    options = create_options(idx_to_pos(list(agent_pos.keys())[0]),list(agent_pos.values())[0],mine_pos,base_pos,my_state,op_state,split_suam,mapp)
+    # produce_woker = Option()
+    num_actions = len(options)
+    q_func = QTable(state_space,num_actions)
+    agent_smdp = SmdpAgent_Q(q_func,options,)
     states = []
     reward_record = []
     actions = []
@@ -229,10 +217,12 @@ if __name__ == "__main__":
         tot_td = 0
         done = False
 
-        for cur_state_idx,unit_type in agent_pos.items():
+        for cur_state_idx, unit_type in agent_pos.items():
             if cur_state_idx not in cur_option.keys():
         #epsilon = np.max([0.1,1.-itr/(itrations/2.)]) # linear epsilon-decay
-                agent_smdp.options = create_options(idx_to_pos(cur_state_idx),unit_type, mine_pos,base_pos,my_state,op_state,mapp)
+                source_unit_action_mask = action_mask[cur_state_idx]
+                split_suam = np.split(source_unit_action_mask, split_index)
+                agent_smdp.options = create_options(idx_to_pos(cur_state_idx),unit_type, mine_pos,base_pos,my_state,op_state,split_suam,mapp)
                 opt  = agent_smdp.pick_option_greedy_epsilon(idx_to_pos(cur_state_idx), unit_type, eps=args.epsilon)
                 cur_option[cur_state_idx] = opt
 

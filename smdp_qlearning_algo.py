@@ -153,8 +153,12 @@ class Option():
             return unit_type == util.UNIT_TYPE["barrack"]
         elif self.identifier == 6:
             return unit_type == util.UNIT_TYPE['light'] or unit_type == util.UNIT_TYPE['ranged'] or unit_type == util.UNIT_TYPE['heavy']
+        elif self.identifier == 7:
+            return unit_type == util.UNIT_TYPE["worker"]
         elif self.identifier == 99:
-            return not unit_type == util.UNIT_TYPE["barrack"] # TODO
+            return not unit_type == util.UNIT_TYPE["barrack"] # TODO barrack must produce
+        elif self.identifier == 98:
+            return unit_type == util.UNIT_TYPE['light'] or unit_type == util.UNIT_TYPE['ranged'] or unit_type == util.UNIT_TYPE['heavy'] or unit_type == util.UNIT_TYPE['worker']
         else:
             return False
         
