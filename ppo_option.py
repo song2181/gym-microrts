@@ -430,16 +430,16 @@ class Agent(nn.Module):
 
     def get_option(self, x, option=None, invalid_option_masks=None, envs=None):
         logits = self.actor(self.forward(x)) # [24,2560]
-        grid_logits = logits.view(-1,num_options)
+        grid_logits = logits.view(-1,num_options) #[6144,10] 
+        assert invalid_option_masks is not None, "invalid_option_mask is None."
+        invalid_option_masks = torch.tensor(invalid_option_masks).view(-1, invalid_option_masks.shape[-1]).to(device)
         # invalid_option_masks [24,2560] x[24,16,16,27]
         if option is None:
-            assert invalid_option_masks is not None, "invalid_option_mask is None."
-            invalid_option_masks = torch.tensor(invalid_option_masks).view(-1, invalid_option_masks.shape[-1]).to(device)
             categorical = CategoricalMasked(logits=grid_logits, masks=invalid_option_masks)
             option = categorical.sample()# [6144] (24*256)
         else:
-            option = option.view(-1, option.shape[-1]).T
-            categorical = CategoricalMasked(logits=logits, masks=invalid_option_masks)
+            option = option.view(-1)
+            categorical = CategoricalMasked(logits=grid_logits, masks=invalid_option_masks)
         logprob = categorical.log_prob(option)#[6144]
         entropy = categorical.entropy() #[6144]
         logprob = logprob.T.view(-1, 256) #[24,256]
