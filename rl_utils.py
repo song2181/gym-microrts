@@ -128,8 +128,8 @@ def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,acti
     options = []
     options.extend(create_transport_option(agent_pos,unit_type,base_pos,mine_pos,mapp))#1
     options.extend(create_produce_worker_option(agent_pos,my_state))#2
-    # options.extend(create_heavy_option(agent_pos))#3
-    # options.extend(create_light_option(agent_pos))#4
+    options.extend(create_heavy_option(agent_pos))#3
+    options.extend(create_light_option(agent_pos))#4
     options.extend(create_ranged_option(agent_pos))#5
     options.extend(create_attack_base_option(agent_pos,unit_type,op_state,mapp))#6
     options.extend(create_barrack_option(agent_pos,unit_type,mapp))#7
