@@ -13,10 +13,14 @@ import torch.optim as optim
 from gym.spaces import MultiDiscrete
 from gym_microrts import microrts_ai
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv
+from stable_baselines3.dqn.dqn import DQN
 from stable_baselines3.common.vec_env import VecEnvWrapper, VecVideoRecorder
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 
+
+
+model = DQN("MlpPolicy",env=envs,)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PPO agent")
     # Common arguments
@@ -305,7 +309,7 @@ class Agent(nn.Module):
             layer_init(nn.Linear(32 * 6 * 6, 256)),
             nn.ReLU(),
         )
-        self.actor = layer_init(nn.Linear(256, self.mapsize * envs.action_space.nvec[1:].sum()), std=0.01)
+        # self.actor = layer_init(nn.Linear(256, self.mapsize * envs.action_space.nvec[1:].sum()), std=0.01)
         self.critic = layer_init(nn.Linear(256, 1), std=1)
 
     def forward(self, x):

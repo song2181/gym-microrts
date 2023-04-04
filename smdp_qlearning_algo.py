@@ -1,5 +1,6 @@
 import numpy as np
 import rl_utils as util
+import torch
 
 class Agent():
     """Base agent class for interacting with RoomWorld.
@@ -131,20 +132,20 @@ class Option():
         return self.act(state)
     
     
-    def check_validity(self,state,unit_type):
+    def check_validity(self,state,unit_type,obs):
         """Returns boolean indicator of whether or not the state is among valid
            starting points for this option.
         """
         from rl_utils import pos_to_idx
         if type(state)==np.ndarray:
             state = state.tolist()
-        if self.check_type(unit_type):
+        if self.check_type(unit_type,state,obs):
             return pos_to_idx(state) in self.activation.tolist()
         else:
             return False
 
 
-    def check_type(self, unit_type):
+    def check_type(self, unit_type,state,obs):
         if self.identifier == 1:
             return unit_type == util.UNIT_TYPE["worker"]
         elif self.identifier == 2:
@@ -155,8 +156,11 @@ class Option():
             return unit_type == util.UNIT_TYPE['light'] or unit_type == util.UNIT_TYPE['ranged'] or unit_type == util.UNIT_TYPE['heavy']
         elif self.identifier == 7:
             return unit_type == util.UNIT_TYPE["worker"]
+        elif self.identifier == 8:
+            return unit_type == util.UNIT_TYPE["worker"] and (torch.argmax(obs[state[0],state[1],5:10]).item() > 0) # resource number >0
         elif self.identifier == 99:
-            return not unit_type == util.UNIT_TYPE["barrack"] # TODO barrack must produce
+            # return (not unit_type == util.UNIT_TYPE["barrack"]) and (not unit_type == util.UNIT_TYPE["worker"])# TODO barrack must produce
+            return True
         elif self.identifier == 98:
             return unit_type == util.UNIT_TYPE['light'] or unit_type == util.UNIT_TYPE['ranged'] or unit_type == util.UNIT_TYPE['heavy'] or unit_type == util.UNIT_TYPE['worker']
         else:

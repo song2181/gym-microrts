@@ -14,12 +14,13 @@ from gym.spaces import MultiDiscrete
 from gym_microrts import microrts_ai
 from gym_microrts.envs.vec_env import MicroRTSGridModeVecEnv
 from stable_baselines3.common.vec_env import VecEnvWrapper, VecVideoRecorder
+# from stable_baselines3.dqn import DQN
 from torch.distributions.categorical import Categorical
 from torch.utils.tensorboard import SummaryWriter
 from rl_utils import *
 
 if __name__ == "__main__":
-    num_options = 6
+    num_options = 9
     parser = argparse.ArgumentParser(description="PPO agent")
     # Common arguments
     parser.add_argument(
@@ -310,7 +311,7 @@ class OptionsPool():
             for j in range(self.map_size*self.map_size):
                 if j in self.options[i].keys():
                     unit_type = self.agent_pos[i][j]
-                    option_mask.extend([self.options[i][j][k].check_validity(idx_to_pos(j),unit_type) for k in range(num_options)])
+                    option_mask.extend([self.options[i][j][k].check_validity(idx_to_pos(j),unit_type,obs[i]) for k in range(num_options)])
                 else:
                     option_mask.extend([False for _ in range(num_options)])
                 
@@ -322,15 +323,15 @@ class OptionsPool():
             self.options = options
         else:
             self.options = [{} for _ in range(args.num_envs)]
-            obs = obs_tensor.cpu().numpy()
+            # obs = obs_tensor.cpu().numpy()
             for i in range(args.num_envs):
-                agent_pos,mine_pos,base_pos,my_state,op_state = obs_wrapper(obs[i])
+                agent_pos,mine_pos,base_pos,my_state,op_state,resource = obs_wrapper(obs_tensor[i])
                 self.agent_pos[i] = agent_pos
-                mapp = np.ones([self.map_size,self.map_size])-obs[i][:,:,13].reshape(self.map_size,self.map_size)
+                mapp = np.ones([self.map_size,self.map_size])-obs_tensor[i,:,:,13].cpu().numpy()
                 for cur_state_idx, unit_type in agent_pos.items():
                     source_unit_action_mask = action_mask[i][cur_state_idx]
                     split_suam = np.split(source_unit_action_mask, split_index)
-                    self.options[i][cur_state_idx] = create_options(idx_to_pos(cur_state_idx),unit_type, mine_pos,base_pos,my_state,op_state,split_suam,mapp)
+                    self.options[i][cur_state_idx] = create_options(idx_to_pos(cur_state_idx),unit_type, mine_pos,base_pos,my_state,op_state,split_suam,resource,mapp)
 
     def get_current_options(self,opt):
         for i in range(args.num_envs):
@@ -352,27 +353,36 @@ def check_options_termination(options):
             finished_option[idx] = new_option.pop(idx)
     return new_option,finished_option
 
-def get_action(cur_option, action_mask, split_index):
+def get_action(obs, cur_option, action_mask, split_index):
+    new_obs = obs.view(args.num_envs,mapsize,-1)
     acts = [[] for _ in range(args.num_envs)]
     new_option = copy.deepcopy(cur_option)
     for i in range(args.num_envs):
         for idx, opt in cur_option[i].items():
-            source_unit_action_mask = action_mask[i][idx]
-            split_suam = np.split(source_unit_action_mask, split_index) # len=7, length is [6,4,4,4,4,7,49]
-            if invalid_attack(split_suam):
-                opt_pos = np.argmax(split_suam[6]) # attack position 
-                act = np.array([idx,ACTION_TYPE['attack'],0,0,0,0,0,opt_pos])
-                acts[i].append(act)
+            if torch.argmax(new_obs[i,idx,21:]).item() != 0: #正在执行动作
+                pass
             else:
-                act = opt.policy[opt.cur_action]
-                mask = [split_suam[i-1][act[i]] for i in range(1,8)]
-                # 1. 有动作 2 动作可执行 3 动作方向参数可执行
-                if invalid_action(act, mask):
-                    new_option[i][idx].cur_action += 1
+                source_unit_action_mask = action_mask[i][idx]
+                split_suam = np.split(source_unit_action_mask, split_index) # len=7, length is [6,4,4,4,4,7,49]
+                if invalid_attack(split_suam):
+                    opt_pos = np.argmax(split_suam[6]) # attack position 
+                    act = np.array([idx,ACTION_TYPE['attack'],0,0,0,0,0,opt_pos])
                     acts[i].append(act)
-                    if act[1] == ACTION_TYPE['move']:
-                        new_pos = move(idx_to_pos(idx),dir=act[2])
-                        new_option[i][pos_to_idx(new_pos)] = new_option[i].pop(idx)
+                else:
+                    act = opt.policy[opt.cur_action]
+                    mask = [split_suam[i-1][act[i]] for i in range(1,8)]
+                    # 1. 有动作 2 动作可执行 3 动作方向参数可执行
+                    if invalid_action(act, mask) :
+                        new_option[i][idx].cur_action += 1
+                        acts[i].append(act)
+                        if act[1] == ACTION_TYPE['move']:
+                            new_pos = move(idx_to_pos(idx),dir=act[2])
+                            new_option[i][pos_to_idx(new_pos)] = new_option[i].pop(idx)
+                    else:
+                        if act[1] == ACTION_TYPE['produce'] and act[6] == PRODUCE_TYPE['worker']:
+                            acts[i].append(np.array([idx,ACTION_TYPE['NOOP'],0,0,0,0,0,0]))
+                        else:
+                            new_option[i][idx].cur_action = new_option[i][idx].num_actions # 终止option
     
     return acts,new_option
 
@@ -382,32 +392,34 @@ def obs_wrapper(rts_obs): ## position rts_obs 1*16*16*27
     base_pos = []
     my_state = {}
     op_state = {}
+    num_resource = 0
     for unit_type in range(1,8): # unittype: 1-7
         my_state[unit_type] = []
         op_state[unit_type] = []
     # rts_obs_space = rts_obs.shape(-1)
-    rts_obs = rts_obs.squeeze()  ## 16*16*27
-    for i in range(0,rts_obs.shape[0]):   ## x坐标
-        for j in range(0,rts_obs.shape[1]):   ## y坐标
-            hit_points = np.argmax(rts_obs[i][j][0:5])
-            resource =  np.argmax(rts_obs[i][j][5:10])
-            owner = rts_obs[i][j][10:13]
-            unit_type = np.argmax(rts_obs[i][j][13:21])
-            current_action = np.argmax(rts_obs[i][j][21:27])
-            if unit_type == UNIT_TYPE['resource'] and resource>0:
-                mine_pos.append([i,j])
-            if unit_type == UNIT_TYPE['base'] and owner[1]:
-                base_pos.append([i,j])
-            if unit_type >= UNIT_TYPE['base'] and owner[1] and current_action == 0:  ## not base and resource of player1
-                agent_pos[pos_to_idx([i,j])] = unit_type
-            if owner[1] and unit_type>0:
+    size = rts_obs.shape[1] ## 16*16*27
+    for i in range(size):   ## x坐标
+        for j in range(size):   ## y坐标
+            hit_points = torch.argmax(rts_obs[i,j,0:5]).item()
+            resource =  torch.argmax(rts_obs[i,j,5:10]).item()
+            owner = torch.argmax(rts_obs[i,j,10:13]).item()
+            unit_type = torch.argmax(rts_obs[i,j,13:21]).item()
+            current_action = torch.argmax(rts_obs[i,j,21:27]).item()
+            if owner == 1 and unit_type>0:
                 my_state[unit_type].append([i,j])
-            elif owner[2] and unit_type>0:
+                if unit_type == UNIT_TYPE['base']:
+                    base_pos.append([i,j])
+                    num_resource += resource
+                if unit_type >= UNIT_TYPE['base'] and current_action == 0:  ## not base and resource of player1
+                    agent_pos[pos_to_idx([i,j])] = unit_type
+            elif owner == 2 and unit_type>0:
                 op_state[unit_type].append([i,j])
-            elif owner[0] and unit_type>0:
+            elif owner==0 and unit_type>0:
                 op_state[unit_type].append([i,j])
                 my_state[unit_type].append([i,j])
-    return agent_pos,mine_pos,base_pos,my_state,op_state
+                if unit_type == UNIT_TYPE['resource'] and resource>0:
+                    mine_pos.append([i,j])
+    return agent_pos,mine_pos,base_pos,my_state,op_state,resource
 
 class Agent(nn.Module):
     def __init__(self, mapsize=16 * 16):
@@ -529,7 +541,7 @@ for update in range(starting_update, num_updates + 1):
         invalid_action_mask = torch.tensor(np.array(envs.vec_client.getMasks(0))).to(device)
         invalid_action_masks[step] = invalid_action_mask.view(-1, 256, envs.action_space.nvec[1:].sum() + 1)
         real_option = current_option.get_current_options(option)
-        action, real_option = get_action(real_option,action_mask,split_index) #[24,256,7]
+        action, real_option = get_action(next_obs,real_option,action_mask,split_index) #[24,256,7]
         current_option.update_current_option(real_option)
         t_end = time.time()
         print("get_action:", t_end-t_start)
@@ -557,7 +569,11 @@ for update in range(starting_update, num_updates + 1):
         # java_valid_actions = JArray(JArray(JArray(JInt)))(java_valid_actions)
         t_start = time.time()
         try:
-            next_obs, rs, ds, infos = envs.step(action)
+            for i in range(10):
+                if i == 0 :
+                    next_obs, rs, ds, infos = envs.step(action)
+                else:
+                    next_obs, rs, ds, infos = envs.step([[]]*args.num_envs)
             next_obs = torch.Tensor(next_obs).to(device)
         except Exception as e:
             e.printStackTrace()
