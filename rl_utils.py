@@ -124,15 +124,16 @@ class QTable_Numpy():
         else:
             self.table[tuple(state)][action] = q
 
-def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,action_mask,mapp):
+def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,action_mask,resource,mapp):
     options = []
     options.extend(create_transport_option(agent_pos,unit_type,base_pos,mine_pos,mapp))#1
-    options.extend(create_produce_worker_option(agent_pos,my_state))#2
+    options.extend(create_produce_worker_option(agent_pos,my_state,len(base_pos)))#2
     options.extend(create_heavy_option(agent_pos))#3
     options.extend(create_light_option(agent_pos))#4
     options.extend(create_ranged_option(agent_pos))#5
     options.extend(create_attack_base_option(agent_pos,unit_type,op_state,mapp))#6
-    options.extend(create_barrack_option(agent_pos,unit_type,mapp))#7
+    options.extend(create_barrack_option(agent_pos,unit_type,resource,mapp))#7
+    options.extend(create_return_option(agent_pos,unit_type,base_pos, mapp))#8
     # options.extend(create_attack_closest_option(agent_pos,unit_type,op_state,mapp))
     options.extend(create_NOOP_options(agent_pos))#99
     # options.extend(create_random_move_options(agent_pos,action_mask))#98
@@ -160,12 +161,14 @@ def create_NOOP_options(agent_pos):
     return [option]
 
 
-def create_barrack_option(agent_pos,unit_type,mapp):
+def create_barrack_option(agent_pos,unit_type,resource,mapp):
     from A_star import get_move_policy
     valid_state = [i for i in range(0,256)]  # all states
     terminate = []
-    policy = get_move_policy(agent_pos,[2,4],mapp)
-    policy.append(np.array([pos_to_idx(agent_pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['barrack'],0]))
+    if resource < 4 or mapp[1][3] == 1:
+        valid_state = []
+    policy = get_move_policy(agent_pos,[1,3],mapp)
+    policy.append(np.array([pos_to_idx([1,3]),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['north'],PRODUCE_TYPE['barrack'],0]))
     option = Option(policy,valid_state,terminate,len(policy),identifier=7)
     return [option]
 
@@ -237,16 +240,48 @@ def invalid_action(act, mask):
 def invalid_attack(split_suam):
     return split_suam[0][5] == 1 # attack mask
 
-def create_produce_worker_option(pos,my_state):
+def create_produce_worker_option(pos,my_state,num_base):
     valid_state = [i for i in range(0,256)]  # all states
     terminate = []
     policy = []
-    if len(my_state[UNIT_TYPE['worker']]) > 4:
+    if len(my_state[UNIT_TYPE['worker']]) >= 2*num_base:
         valid_state = []
     else:
         policy.append(np.array([pos_to_idx(pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['worker'],0]))
     option = Option(policy,valid_state,terminate,len(policy),identifier=2)
 
+    return [option]
+
+def create_return_option(pos,unit_type,base_pos_list,mapp):
+    valid_state = [i for i in range(0,256)]  # all states
+    terminate = []
+    # policy = np.zeros((16,16),dtype=np.array) ##16*16
+    policy = [] # list of array
+    if len(base_pos_list) == 0 :
+        valid_state = [] # option不可执行
+        option = Option(policy,valid_state,terminate,len(policy),identifier=8)
+        return [option]
+    if unit_type == UNIT_TYPE["worker"]:
+        base_pos,dis1 = find_closest(pos,base_pos_list)
+        if not isNext(pos,base_pos):
+            action, pos2= move_to_pos_around(pos,base_pos,mapp)
+            policy.extend(action)
+            while action == []:
+                # 不可到达
+                base_pos_list.remove(base_pos)
+                if len(base_pos_list) > 0:
+                    base_pos, dist1= find_closest(pos,base_pos_list)
+                    action, pos2= move_to_pos_around(pos,base_pos,mapp)
+                else:
+                    valid_state = [] # option不可执行
+                    option = Option(policy,valid_state,terminate,len(policy),identifier=8)
+                    return [option]
+        else:
+            pos2 = pos
+            policy.append(get_harvest_return_policy(pos2,base_pos,action_type=ACTION_TYPE["return"]))
+    if policy == [] and unit_type == UNIT_TYPE["worker"] and valid_state != []:
+        print("a")
+    option = Option(policy,valid_state,terminate,len(policy),identifier=8)
     return [option]
 
 def create_transport_option(pos, unit_type,base_pos_list, mine_pos_list,mapp):
@@ -257,7 +292,7 @@ def create_transport_option(pos, unit_type,base_pos_list, mine_pos_list,mapp):
     terminate = []
     # policy = np.zeros((16,16),dtype=np.array) ##16*16
     policy = [] # list of array
-    if len(mine_pos_list) == 0 or len(base_pos_list) == 0:
+    if len(mine_pos_list) == 0 or len(base_pos_list) == 0 :
         valid_state = [] # option不可执行
         option = Option(policy,valid_state,terminate,len(policy),identifier=1)
         return [option]
