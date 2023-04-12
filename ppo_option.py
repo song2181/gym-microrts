@@ -20,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from rl_utils import *
 
 if __name__ == "__main__":
-    num_options = 9
+    num_options = 13
     parser = argparse.ArgumentParser(description="PPO agent")
     # Common arguments
     parser.add_argument(
@@ -239,12 +239,12 @@ envs = MicroRTSGridModeVecEnv(
     map_path="maps/16x16/basesWorkers16x16.xml",
     reward_weight=np.array([10.0, 1.0, 1.0, 0.2, 1.0, 4.0]),
 )
-# envs = MicroRTSStatsRecorder(envs, args.gamma)
-# envs = VecMonitor(envs)
-# if args.capture_video:
-#     envs = VecVideoRecorder(
-#         envs, f"videos/{experiment_name}", record_video_trigger=lambda x: x % 1000000 == 0, video_length=2000
-#     )
+envs = MicroRTSStatsRecorder(envs, args.gamma)
+envs = VecMonitor(envs)
+if args.capture_video:
+    envs = VecVideoRecorder(
+        envs, f"videos/{experiment_name}", record_video_trigger=lambda x: x % 1000000 == 0, video_length=2000
+    )
 # if args.prod_mode:
 #     envs = VecPyTorch(
 #         SubprocVecEnv([make_env(args.gym_id, args.seed+i, i) for i in range(args.num_envs)], "fork"),
@@ -444,7 +444,7 @@ class Agent(nn.Module):
         logits = self.actor(self.forward(x)) # [24,2560]
         grid_logits = logits.view(-1,num_options) #[6144,10] 
         assert invalid_option_masks is not None, "invalid_option_mask is None."
-        invalid_option_masks = torch.tensor(invalid_option_masks).view(-1, invalid_option_masks.shape[-1]).to(device)
+        invalid_option_masks = invalid_option_masks.view(-1, invalid_option_masks.shape[-1]).to(device)
         # invalid_option_masks [24,2560] x[24,16,16,27]
         if option is None:
             categorical = CategoricalMasked(logits=grid_logits, masks=invalid_option_masks)
@@ -532,9 +532,9 @@ for update in range(starting_update, num_updates + 1):
         t_start = time.time()
         with torch.no_grad():
             values[step] = agent.get_value(obs[step]).flatten()
-            option, logproba, _, invalid_option_masks[step] = agent.get_option(obs[step],invalid_option_masks = current_option.getOptionMask(obs[step]),envs=envs)
+            option, logproba, _, invalid_option_masks[step] = agent.get_option(obs[step],invalid_option_masks = torch.tensor(current_option.getOptionMask(obs[step])),envs=envs)
         t_end = time.time()
-        print("get_option:", t_end-t_start)
+        # print("get_option:", t_end-t_start)
         t_start = time.time()
         options[step] = option
         logprobs[step] = logproba
@@ -544,7 +544,7 @@ for update in range(starting_update, num_updates + 1):
         action, real_option = get_action(next_obs,real_option,action_mask,split_index) #[24,256,7]
         current_option.update_current_option(real_option)
         t_end = time.time()
-        print("get_action:", t_end-t_start)
+        # print("get_action:", t_end-t_start)
         # TRY NOT TO MODIFY: execute the game and log data.
         # the real action adds the source units
         # real_action = torch.cat(
@@ -573,22 +573,23 @@ for update in range(starting_update, num_updates + 1):
                 if i == 0 :
                     next_obs, rs, ds, infos = envs.step(action)
                 else:
-                    next_obs, rs, ds, infos = envs.step([[]]*args.num_envs)
-            next_obs = torch.Tensor(next_obs).to(device)
+                    next_obs, _,_,_ = envs.step([[]]*args.num_envs)
+            # next_obs, rs, ds, infos = envs.step(action)
+                next_obs = torch.Tensor(next_obs).to(device)
+                rewards[step], next_done = torch.Tensor(rs).to(device), torch.Tensor(ds).to(device)
+
+                for info in infos:
+                    if "episode" in info.keys():
+                        print(f"global_step={global_step}, episode_reward={info['episode']['r']}")
+                        writer.add_scalar("charts/episode_reward", info["episode"]["r"], global_step)
+                        for key in info["microrts_stats"]:
+                            writer.add_scalar(f"charts/episode_reward/{key}", info["microrts_stats"][key], global_step)
+                        break
         except Exception as e:
             e.printStackTrace()
             raise
-        rewards[step], next_done = torch.Tensor(rs).to(device), torch.Tensor(ds).to(device)
-
-        for info in infos:
-            if "episode" in info.keys():
-                print(f"global_step={global_step}, episode_reward={info['episode']['r']}")
-                writer.add_scalar("charts/episode_reward", info["episode"]["r"], global_step)
-                for key in info["microrts_stats"]:
-                    writer.add_scalar(f"charts/episode_reward/{key}", info["microrts_stats"][key], global_step)
-                break
         t_end = time.time()
-        print("step:", t_end-t_start)
+        # print("step:", t_end-t_start)
 
     # bootstrap reward if not done. reached the batch limit
     with torch.no_grad():

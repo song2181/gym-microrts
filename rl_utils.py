@@ -136,20 +136,26 @@ def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,acti
     options.extend(create_return_option(agent_pos,unit_type,base_pos, mapp))#8
     # options.extend(create_attack_closest_option(agent_pos,unit_type,op_state,mapp))
     options.extend(create_NOOP_options(agent_pos))#99
-    # options.extend(create_random_move_options(agent_pos,action_mask))#98
+    options.extend(create_move_options(agent_pos,action_mask,DIR_TO_IDX['north']))#98,
+    options.extend(create_move_options(agent_pos,action_mask,DIR_TO_IDX['east']))#98,
+    options.extend(create_move_options(agent_pos,action_mask,DIR_TO_IDX['south']))#98,
+    options.extend(create_move_options(agent_pos,action_mask,DIR_TO_IDX['west']))#98,
     
     return options
 
-def create_random_move_options(agent_pos,action_mask):
+def create_move_options(agent_pos,action_mask,dir):
     valid_state = [i for i in range(0,256)]  # all states
     terminate = []
     policy = []
-    valid_dir = [i for i in range(0,4) if action_mask[1][i] == 1]
-    if valid_dir == []:
+    # valid_dir = [i for i in range(0,4) if action_mask[1][i] == 1]
+    #     if valid_dir == []:
+    #         valid_state = []
+    #     else:
+    #         dir = np.random.choice(valid_dir)
+    #         policy.append(np.array([pos_to_idx(agent_pos),ACTION_TYPE['move'],dir,0,0,0,0,0]))
+    if action_mask[1][dir] == 0:
         valid_state = []
-    else:
-        dir = np.random.choice(valid_dir)
-        policy.append(np.array([pos_to_idx(agent_pos),ACTION_TYPE['move'],dir,0,0,0,0,0]))
+    policy.append(np.array([pos_to_idx(agent_pos),ACTION_TYPE['move'],dir,0,0,0,0,0]))
     option = Option(policy,valid_state,terminate,len(policy),identifier=98)
     return [option]
 
