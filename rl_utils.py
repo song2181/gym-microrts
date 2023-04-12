@@ -136,7 +136,7 @@ def create_options(agent_pos,unit_type, mine_pos,base_pos,my_state,op_state,acti
     options.extend(create_return_option(agent_pos,unit_type,base_pos, mapp))#8
     # options.extend(create_attack_closest_option(agent_pos,unit_type,op_state,mapp))
     options.extend(create_NOOP_options(agent_pos))#99
-    # options.extend(create_random_move_options(agent_pos,action_mask))#98
+    # options.extend(create_move_left_options(agent_pos,action_mask))#98
     
     return options
 
