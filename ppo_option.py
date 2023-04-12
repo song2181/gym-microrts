@@ -20,7 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from rl_utils import *
 
 if __name__ == "__main__":
-    num_options = 9
+    num_options = 13
     parser = argparse.ArgumentParser(description="PPO agent")
     # Common arguments
     parser.add_argument(
@@ -520,7 +520,7 @@ for update in range(starting_update, num_updates + 1):
 
     # TRY NOT TO MODIFY: prepare the execution of the game.
     for step in range(0, args.num_steps):
-        # envs.render()
+        envs.render()
         
         global_step += 1 * args.num_envs
         obs[step] = next_obs
