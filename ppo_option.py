@@ -200,7 +200,7 @@ class MicroRTSStatsRecorder(VecEnvWrapper):
 
 
 # TRY NOT TO MODIFY: setup the environment
-experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+experiment_name = f"{args.gym_id}__{args.exp_name}__{args.seed}__{int(time.time())}__20worker"
 writer = SummaryWriter(f"runs/{experiment_name}")
 writer.add_text(
     "hyperparameters", "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()]))
@@ -573,7 +573,7 @@ for update in range(starting_update, num_updates + 1):
                 if i == 0 :
                     next_obs, rs, ds, infos = envs.step(action)
                 else:
-                    next_obs, _,_,_ = envs.step([[]]*args.num_envs)
+                    next_obs, rs, ds, infos = envs.step([[]]*args.num_envs)
             # next_obs, rs, ds, infos = envs.step(action)
                 next_obs = torch.Tensor(next_obs).to(device)
                 rewards[step], next_done = torch.Tensor(rs).to(device), torch.Tensor(ds).to(device)
@@ -585,6 +585,8 @@ for update in range(starting_update, num_updates + 1):
                         for key in info["microrts_stats"]:
                             writer.add_scalar(f"charts/episode_reward/{key}", info["microrts_stats"][key], global_step)
                         break
+
+
         except Exception as e:
             e.printStackTrace()
             raise

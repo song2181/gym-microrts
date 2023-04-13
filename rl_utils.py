@@ -250,7 +250,7 @@ def create_produce_worker_option(pos,my_state,num_base):
     valid_state = [i for i in range(0,256)]  # all states
     terminate = []
     policy = []
-    if len(my_state[UNIT_TYPE['worker']]) >= 2*num_base:
+    if len(my_state[UNIT_TYPE['worker']]) >= 10*num_base:
         valid_state = []
     else:
         policy.append(np.array([pos_to_idx(pos),ACTION_TYPE['produce'],0,0,0,DIR_TO_IDX['south'],PRODUCE_TYPE['worker'],0]))

@@ -131,7 +131,8 @@ def get_move_policy(pos1, pos2, mappp):
     route = SearchPath(mapp,start_position,target_position)
     policy = []
     if route is None:
-        print("未找到最佳路径,起点及终点为",pos1,pos2)
+        # print("未找到最佳路径,起点及终点为",pos1,pos2)
+        pass
     else:
         for i in range(len(route)-1):
             pos = [route[i].x,route[i].y]
